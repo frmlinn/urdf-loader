@@ -1,0 +1,44 @@
+{
+  "name": "urdf-loader",
+  "version": "1.0.0",
+  "description": "URDF Loader for THREE.js (TypeScript Edition)",
+  "type": "module",
+  "main": "./dist/urdf-loaders.umd.cjs",
+  "module": "./dist/urdf-loaders.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/urdf-loaders.js",
+      "require": "./dist/urdf-loaders.umd.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite serve",
+    "build": "tsc && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "bench": "vitest bench",
+    "lint": "eslint ."
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.9.1",
+    "@types/three": "^0.184.1",
+    "eslint": "^10.4.0",
+    "globals": "^17.6.0",
+    "jsdom": "^29.1.1",
+    "tweakpane": "^4.0.5",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.59.4",
+    "vite": "^8.0.12",
+    "vitest": "^4.1.7"
+  },
+  "peerDependencies": {
+    "three": "^0.184.0"
+  }
+}
