@@ -21,19 +21,18 @@ const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
 dirLight.position.set(5, 5, 5);
 scene.add(dirLight);
 
-const pane: any = new Pane({ title: 'T12 Robot Controls' });
+const pane: any = new Pane({ title: 'T12 Robot (Playground)' });
 
 const loader = new URDFLoader();
 loader.packages = '/urdf'; 
 
-async function loadModel() {
+async function initPlayground() {
     try {
         const robot = await loader.loadAsync('/urdf/T12/urdf/T12.URDF');
-        
-        robot.rotation.x = -Math.PI / 2;
+        robot.rotation.x = -Math.PI / 2; // Z-up a Y-up
         scene.add(robot);
 
-        const jointsFolder = pane.addFolder({ title: 'Joints' });
+        const jointsFolder = pane.addFolder({ title: 'Articulaciones' });
         
         for (const [name, joint] of Object.entries(robot.joints)) {
             if (joint.jointType !== 'fixed') {
@@ -51,11 +50,11 @@ async function loadModel() {
             }
         }
     } catch (error) {
-        console.error("Error cargando el URDF T12:", error);
+        console.error("Playground Error:", error);
     }
 }
 
-loadModel();
+initPlayground();
 
 function animate() {
     requestAnimationFrame(animate);
