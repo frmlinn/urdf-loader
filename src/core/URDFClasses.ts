@@ -346,6 +346,40 @@ export class URDFRobot extends URDFLink {
     public visual: Record<string, URDFVisual> = {};
     public frames: Record<string, URDFBase> = {};
 
+    // --- CACHÉ PLANO DE MALLAS (FASE 2) ---
+    public flatVisualMeshes: Mesh[] = [];
+    public flatColliderMeshes: Mesh[] = [];
+
+    public updateMeshCaches() {
+        this.flatVisualMeshes = [];
+        this.flatColliderMeshes = [];
+
+        this.traverse((c) => {
+            if (c instanceof Mesh) {
+                let isCollider = false;
+                let curr: Object3D | null = c.parent;
+                // Subimos por el árbol para saber si esta malla es colisión o visual
+                while (curr && curr !== this) {
+                    if ('isURDFCollider' in curr) {
+                        isCollider = true;
+                        break;
+                    }
+                    if ('isURDFVisual' in curr) {
+                        isCollider = false;
+                        break;
+                    }
+                    curr = curr.parent;
+                }
+                
+                if (isCollider) {
+                    this.flatColliderMeshes.push(c);
+                } else {
+                    this.flatVisualMeshes.push(c);
+                }
+            }
+        });
+    }
+
     override copy(source: this, recursive?: boolean): this {
         super.copy(source, recursive);
 
@@ -372,8 +406,6 @@ export class URDFRobot extends URDFLink {
                     this.visual[c.urdfName] = c as URDFVisual;
                 }
             }
-            // Blindaje contra fugas en clonaciones manuales:
-            // Aseguramos retener los recursos (geometrías/materiales compartidos) de las mallas recién duplicadas
             if (c instanceof Mesh) {
                 retainMeshResources(c);
             }
@@ -390,6 +422,9 @@ export class URDFRobot extends URDFLink {
             ...this.links,
             ...this.joints,
         };
+
+        // Autogenerar el caché tras clonar para mantener la optimización $O(1)$
+        this.updateMeshCaches();
 
         return this;
     }

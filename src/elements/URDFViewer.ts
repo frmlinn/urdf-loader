@@ -178,6 +178,7 @@ export class URDFViewer extends HTMLElement {
         this.resizeObserver.disconnect();
         cancelAnimationFrame(this._renderLoopId);
         if (this.robot) {
+            // El recorrido es aceptable para limpiezas profundas de abortos, pero la optimización brilla en runtime
             this.robot.traverse((c) => {
                 if (c instanceof THREE.Mesh) releaseMeshResources(c);
             });
@@ -283,11 +284,11 @@ export class URDFViewer extends HTMLElement {
 
         const bbox = new THREE.Box3();
         bbox.makeEmpty();
-        this.robot.traverse((c) => {
-            if ('isURDFVisual' in c) {
-                bbox.expandByObject(c as THREE.Object3D);
-            }
-        });
+        
+        // Uso del caché O(N) para expandir la caja sin recursividad pesada
+        if (this.robot.flatVisualMeshes.length > 0) {
+            this.robot.flatVisualMeshes.forEach(mesh => bbox.expandByObject(mesh));
+        }
 
         if (bbox.isEmpty()) return;
 
@@ -346,38 +347,36 @@ export class URDFViewer extends HTMLElement {
         this._requestId++;
         const currentRequestId = this._requestId;
 
-        const updateMaterials = (mesh: THREE.Object3D) => {
-            mesh.traverse((c) => {
-                if (c instanceof THREE.Mesh) {
-                    c.castShadow = true;
-                    c.receiveShadow = true;
+        // Optimización: Procesar materiales usando el caché en lugar de traverse recursivo
+        const updateMaterials = (robot: URDFRobot) => {
+            robot.flatVisualMeshes.forEach(c => {
+                c.castShadow = true;
+                c.receiveShadow = true;
 
-                    if (c.material) {
-                        const oldMaterial = c.material;
-                        const mats = (Array.isArray(c.material) ? c.material : [c.material]).map(m => {
-                            let mat = m as THREE.Material;
-                            if (mat instanceof THREE.MeshBasicMaterial) {
-                                mat = new THREE.MeshPhongMaterial();
-                                THREE.Material.prototype.copy.call(mat, m);
-                            }
-                            if ((mat as any).map) {
-                                (mat as any).map.colorSpace = THREE.SRGBColorSpace;
-                            }
-                            return mat;
-                        });
-                        
-                        const newMaterial = mats.length === 1 ? mats[0] : mats;
-                        
-                        // Si hemos clonado/reemplazado materiales, blindamos el GC 
-                        if (oldMaterial !== newMaterial) {
-                            const oldMatsArray = Array.isArray(oldMaterial) ? oldMaterial : [oldMaterial];
-                            oldMatsArray.forEach(releaseResource);
-                            
-                            const newMatsArray = Array.isArray(newMaterial) ? newMaterial : [newMaterial];
-                            newMatsArray.forEach(retainResource);
-                            
-                            c.material = newMaterial;
+                if (c.material) {
+                    const oldMaterial = c.material;
+                    const mats = (Array.isArray(c.material) ? c.material : [c.material]).map(m => {
+                        let mat = m as THREE.Material;
+                        if (mat instanceof THREE.MeshBasicMaterial) {
+                            mat = new THREE.MeshPhongMaterial();
+                            THREE.Material.prototype.copy.call(mat, m);
                         }
+                        if ((mat as any).map) {
+                            (mat as any).map.colorSpace = THREE.SRGBColorSpace;
+                        }
+                        return mat;
+                    });
+                    
+                    const newMaterial = mats.length === 1 ? mats[0] : mats;
+                    
+                    if (oldMaterial !== newMaterial) {
+                        const oldMatsArray = Array.isArray(oldMaterial) ? oldMaterial : [oldMaterial];
+                        oldMatsArray.forEach(releaseResource);
+                        
+                        const newMatsArray = Array.isArray(newMaterial) ? newMaterial : [newMaterial];
+                        newMatsArray.forEach(retainResource);
+                        
+                        c.material = newMaterial;
                     }
                 }
             });
@@ -401,9 +400,14 @@ export class URDFViewer extends HTMLElement {
         this.loader.packages = parsedPkg;
         this.loader.parseCollision = true;
 
+        // Disparador principal asíncrono
         manager.onLoad = () => {
             if (this._requestId !== currentRequestId || !this.robot) return;
 
+            // 1. Generar el caché plano de mallas una sola vez al terminar de cargar todo
+            this.robot.updateMeshCaches();
+
+            // 2. Ejecutar tareas de preparación O(N) sin recursividad pesada
             updateMaterials(this.robot);
             this._setIgnoreLimits(this.ignoreLimits);
             this._updateCollisionVisibility();
@@ -430,27 +434,40 @@ export class URDFViewer extends HTMLElement {
     }
 
     private _updateCollisionVisibility() {
+        if (!this.robot) return;
+
         const showCollision = this.showCollision;
         const collisionMaterial = this._collisionMaterial;
         
-        if (!this.robot) return;
+        // Evaluación instantánea O(1) de fallback
+        const hasColliders = Object.keys(this.robot.colliders).length > 0;
 
-        const colliders: THREE.Object3D[] = [];
-        this.robot.traverse((c) => {
-            if ('isURDFCollider' in c) {
-                c.visible = showCollision;
-                colliders.push(c);
+        // 1. Procesar Mallas Visuales
+        this.robot.flatVisualMeshes.forEach(mesh => {
+            if (hasColliders) {
+                // Optimización de Raycast (Anula CPU hit en pointer events)
+                mesh.raycast = emptyRaycast;
+            } else {
+                // Fallback seguro usando delete para recuperar la función del prototype
+                delete (mesh as any).raycast;
             }
         });
 
-        colliders.forEach(coll => {
-            coll.traverse((c) => {
-                if (c instanceof THREE.Mesh) {
-                    c.raycast = emptyRaycast;
-                    c.material = collisionMaterial;
-                    c.castShadow = false;
-                }
-            });
+        // 2. Procesar Mallas de Colisión
+        this.robot.flatColliderMeshes.forEach(mesh => {
+            // Siempre activas en raycast para interceptar clicks físicos
+            delete (mesh as any).raycast; 
+            mesh.material = collisionMaterial;
+            mesh.castShadow = false;
+
+            // Propagar la visibilidad al grupo URDFCollider de forma limpia
+            let curr = mesh.parent;
+            while (curr && !('isURDFCollider' in curr)) {
+                curr = curr.parent;
+            }
+            if (curr) {
+                curr.visible = showCollision;
+            }
         });
     }
 
