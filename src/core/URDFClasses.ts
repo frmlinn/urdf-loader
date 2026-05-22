@@ -1,4 +1,4 @@
-import { Euler, Object3D, Vector3, Quaternion, Matrix4 } from 'three';
+import { Euler, Object3D, Vector3, Quaternion, Matrix4, Mesh } from 'three';
 
 const _tempAxis = new Vector3();
 const _tempEuler = new Euler();
@@ -7,6 +7,57 @@ const _tempOrigTransform = new Matrix4();
 const _tempQuat = new Quaternion();
 const _tempScale = new Vector3(1.0, 1.0, 1.0);
 const _tempPosition = new Vector3();
+
+// --- SISTEMA DE GESTIÓN DE MEMORIA (REFERENCE COUNTING) ---
+
+export function retainResource(res: any) {
+    if (!res) return;
+    if (Array.isArray(res)) {
+        res.forEach(retainResource);
+        return;
+    }
+    res.userData = res.userData || {};
+    res.userData.refCount = (res.userData.refCount || 0) + 1;
+}
+
+export function releaseResource(res: any) {
+    if (!res) return;
+    if (Array.isArray(res)) {
+        res.forEach(releaseResource);
+        return;
+    }
+    if (res.userData && typeof res.userData.refCount === 'number') {
+        res.userData.refCount--;
+        if (res.userData.refCount <= 0) {
+            if (typeof res.dispose === 'function') res.dispose();
+            delete res.userData.refCount;
+        }
+    }
+}
+
+export function retainMeshResources(mesh: Mesh) {
+    if (mesh.geometry) retainResource(mesh.geometry);
+    if (mesh.material) {
+        retainResource(mesh.material);
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach(m => {
+            if ((m as any).map) retainResource((m as any).map);
+        });
+    }
+}
+
+export function releaseMeshResources(mesh: Mesh) {
+    if (mesh.geometry) releaseResource(mesh.geometry);
+    if (mesh.material) {
+        releaseResource(mesh.material);
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach(m => {
+            if ((m as any).map) releaseResource((m as any).map);
+        });
+    }
+}
+
+// --- CLASES CORE ---
 
 export interface JointLimits {
     lower: number;
@@ -320,6 +371,11 @@ export class URDFRobot extends URDFLink {
                 if ('isURDFVisual' in c && c.urdfName in source.visual) {
                     this.visual[c.urdfName] = c as URDFVisual;
                 }
+            }
+            // Blindaje contra fugas en clonaciones manuales:
+            // Aseguramos retener los recursos (geometrías/materiales compartidos) de las mallas recién duplicadas
+            if (c instanceof Mesh) {
+                retainMeshResources(c);
             }
         });
 

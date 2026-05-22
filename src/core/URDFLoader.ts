@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
 
-import { URDFRobot, URDFJoint, URDFLink, URDFCollider, URDFVisual, URDFMimicJoint, URDFBase, JointType } from './URDFClasses';
+import { URDFRobot, URDFJoint, URDFLink, URDFCollider, URDFVisual, URDFMimicJoint, URDFBase, JointType, retainMeshResources } from './URDFClasses';
 
 export type MeshLoadFunc = (path: string, manager: THREE.LoadingManager) => Promise<THREE.Object3D | null>;
 export type PackagesConfig = string | Record<string, string> | ((targetPkg: string) => string);
@@ -160,6 +160,12 @@ export class URDFLoader extends THREE.Loader {
                                         if (obj instanceof THREE.Mesh) obj.material = material;
                                         obj.position.set(0, 0, 0);
                                         obj.quaternion.identity();
+                                        
+                                        // Retener recursos de mallas externas asíncronas
+                                        obj.traverse(c => {
+                                            if (c instanceof THREE.Mesh) retainMeshResources(c);
+                                        });
+
                                         group.add(obj);
                                     }
                                 }).catch(err => console.error('URDFLoader: Error loading mesh.', err));
@@ -169,11 +175,13 @@ export class URDFLoader extends THREE.Loader {
                         const size = processTuple(geoNode.getAttribute('size'));
                         const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material);
                         mesh.scale.set(size[0], size[1], size[2]);
+                        retainMeshResources(mesh);
                         group.add(mesh);
                     } else if (geoType === 'sphere') {
                         const radius = parseFloat(geoNode.getAttribute('radius') || '0');
                         const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 30, 30), material);
                         mesh.scale.set(radius, radius, radius);
+                        retainMeshResources(mesh);
                         group.add(mesh);
                     } else if (geoType === 'cylinder') {
                         const radius = parseFloat(geoNode.getAttribute('radius') || '0');
@@ -181,6 +189,7 @@ export class URDFLoader extends THREE.Loader {
                         const mesh = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 30), material);
                         mesh.scale.set(radius, length, radius);
                         mesh.rotation.set(Math.PI / 2, 0, 0);
+                        retainMeshResources(mesh);
                         group.add(mesh);
                     }
                 } else if (type === 'origin') {

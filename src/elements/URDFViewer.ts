@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { URDFLoader } from '../core/URDFLoader';
-import { URDFRobot, URDFJoint } from '../core/URDFClasses';
+import { URDFRobot, URDFJoint, releaseMeshResources, retainResource, releaseResource } from '../core/URDFClasses';
 
 const tempVec2 = new THREE.Vector2();
 const emptyRaycast = () => {};
@@ -177,6 +177,12 @@ export class URDFViewer extends HTMLElement {
     disconnectedCallback() {
         this.resizeObserver.disconnect();
         cancelAnimationFrame(this._renderLoopId);
+        if (this.robot) {
+            this.robot.traverse((c) => {
+                if (c instanceof THREE.Mesh) releaseMeshResources(c);
+            });
+            this.robot = null;
+        }
         this.renderer.dispose();
     }
 
@@ -320,7 +326,7 @@ export class URDFViewer extends HTMLElement {
 
         if (this.robot) {
             this.robot.traverse((c) => {
-                if ('dispose' in c && typeof c.dispose === 'function') c.dispose();
+                if (c instanceof THREE.Mesh) releaseMeshResources(c);
             });
             this.world.remove(this.robot);
             this.robot = null;
@@ -347,6 +353,7 @@ export class URDFViewer extends HTMLElement {
                     c.receiveShadow = true;
 
                     if (c.material) {
+                        const oldMaterial = c.material;
                         const mats = (Array.isArray(c.material) ? c.material : [c.material]).map(m => {
                             let mat = m as THREE.Material;
                             if (mat instanceof THREE.MeshBasicMaterial) {
@@ -358,7 +365,19 @@ export class URDFViewer extends HTMLElement {
                             }
                             return mat;
                         });
-                        c.material = mats.length === 1 ? mats[0] : mats;
+                        
+                        const newMaterial = mats.length === 1 ? mats[0] : mats;
+                        
+                        // Si hemos clonado/reemplazado materiales, blindamos el GC 
+                        if (oldMaterial !== newMaterial) {
+                            const oldMatsArray = Array.isArray(oldMaterial) ? oldMaterial : [oldMaterial];
+                            oldMatsArray.forEach(releaseResource);
+                            
+                            const newMatsArray = Array.isArray(newMaterial) ? newMaterial : [newMaterial];
+                            newMatsArray.forEach(retainResource);
+                            
+                            c.material = newMaterial;
+                        }
                     }
                 }
             });
@@ -396,7 +415,7 @@ export class URDFViewer extends HTMLElement {
         this.loader.loadAsync(urdf).then((model) => {
             if (this._requestId !== currentRequestId) {
                 model.traverse((c) => {
-                    if ('dispose' in c && typeof (c as any).dispose === 'function') (c as any).dispose();
+                    if (c instanceof THREE.Mesh) releaseMeshResources(c);
                 });
                 return;
             }
