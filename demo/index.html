@@ -1,27 +1,26 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>URDF Manipulator - Demo</title>
-    <style>
-        body { 
-            margin: 0; 
-            background-color: #263238; 
-            font-family: sans-serif; 
-            overflow: hidden; 
-            height: 100vh; 
-            width: 100vw; 
-        }
-        
-        urdf-manipulator {
-            display: block;
-            width: 100%;
-            height: 100%;
-        }
-    </style>
+    <link rel="stylesheet" href="./style.css">
 </head>
 <body>
+    
+    <div id="ui-overlay">
+        <h3>T12 Robot (Manipulador Interactivo)</h3>
+        <p>Pasa el ratón para <span class="highlight">resaltar</span> las piezas.</p>
+        <p>Pincha y arrastra para mover las articulaciones.</p>
+        
+        <div class="controls">
+            <label>
+                <input type="checkbox" id="anim-toggle">
+                Animación de paseo
+            </label>
+        </div>
+    </div>
+    
     <urdf-manipulator 
         urdf="/urdf/T12/urdf/T12.URDF" 
         package="/urdf"
@@ -29,7 +28,9 @@
         display-shadow 
         ambient-color="#444444"
         highlight-color="#ffbf00"
-        floor-offset="0.2"> </urdf-manipulator>
+        floor-offset="0.2">
+    </urdf-manipulator>
+
     <script type="module" src="./main.ts"></script>
 </body>
 </html>
