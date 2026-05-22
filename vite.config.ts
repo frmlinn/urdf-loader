@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true
     },
     server: {
-      open: '/examples/index.html',
+      open: '/demo/index.html',
     }
   };
 });

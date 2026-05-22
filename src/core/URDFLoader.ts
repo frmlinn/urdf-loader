@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
 
-import { URDFRobot, URDFJoint, URDFLink, URDFCollider, URDFVisual, URDFMimicJoint, URDFBase } from './URDFClasses';
+import { URDFRobot, URDFJoint, URDFLink, URDFCollider, URDFVisual, URDFMimicJoint, URDFBase, JointType } from './URDFClasses';
 
 export type MeshLoadFunc = (path: string, manager: THREE.LoadingManager) => Promise<THREE.Object3D | null>;
 export type PackagesConfig = string | Record<string, string> | ((targetPkg: string) => string);
@@ -72,9 +72,9 @@ export class URDFLoader extends THREE.Loader {
                 return this.packages.endsWith(targetPkg) ? `${this.packages}/${relPath}` : `${this.packages}/${targetPkg}/${relPath}`;
             } else if (typeof this.packages === 'function') {
                 return `${this.packages(targetPkg)}/${relPath}`;
-            } else if (typeof this.packages === 'object') {
+            } else if (typeof this.packages === 'object' && this.packages !== null) {
                 if (targetPkg in this.packages) return `${this.packages[targetPkg]}/${relPath}`;
-                console.error(`URDFLoader : ${targetPkg} not found in provided package list.`);
+                console.error(`URDFLoader: ${targetPkg} not found in provided package list.`);
                 return null;
             }
             return null;
@@ -83,7 +83,7 @@ export class URDFLoader extends THREE.Loader {
         const processTuple = (val: string | null): [number, number, number] => {
             if (!val) return [0, 0, 0];
             const parsed = val.trim().split(/\s+/g).map(num => parseFloat(num));
-            return [parsed[0], parsed[1], parsed[2]];
+            return [parsed[0] || 0, parsed[1] || 0, parsed[2] || 0];
         };
 
         const applyRotation = (obj: THREE.Object3D, rpy: [number, number, number]) => {
@@ -266,7 +266,7 @@ export class URDFLoader extends THREE.Loader {
             obj.urdfNode = joint;
             obj.name = joint.getAttribute('name') || '';
             obj.urdfName = obj.name;
-            obj.jointType = (joint.getAttribute('type') as any) || 'fixed';
+            obj.jointType = (joint.getAttribute('type') as JointType) || 'fixed';
 
             let parent: URDFLink | null = null;
             let child: URDFLink | null = null;
@@ -337,6 +337,18 @@ export class URDFLoader extends THREE.Loader {
                 }
             });
 
+            Object.values(jointMap).forEach(j => {
+                const uniqueJoints = new Set<URDFJoint>();
+                const iterFunction = (joint: URDFJoint) => {
+                    if (uniqueJoints.has(joint)) {
+                        throw new Error('URDFLoader: Detected an infinite loop of mimic joints.');
+                    }
+                    uniqueJoints.add(joint);
+                    joint.mimicJoints.forEach(mj => iterFunction(mj));
+                };
+                iterFunction(j);
+            });
+
             obj.frames = { ...obj.colliders, ...obj.visual, ...linkMap, ...jointMap };
             return obj;
         };
@@ -367,7 +379,7 @@ export class URDFLoader extends THREE.Loader {
             }
         } else if (ext === 'dae') {
             const loader = new ColladaLoader(manager);
-            const dae = await loader.loadAsync(path) as any;
+            const dae = await loader.loadAsync(path) as unknown as { scene: THREE.Group };
             if (dae && dae.scene) {
                 return dae.scene;
             }

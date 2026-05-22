@@ -307,18 +307,19 @@ export class URDFRobot extends URDFLink {
         this.visual = {};
 
         this.traverse(c => {
-            const baseObj = c as URDFBase;
-            if ((c as any).isURDFJoint && baseObj.urdfName in source.joints) {
-                this.joints[baseObj.urdfName] = c as URDFJoint;
-            }
-            if ((c as any).isURDFLink && baseObj.urdfName in source.links) {
-                this.links[baseObj.urdfName] = c as URDFLink;
-            }
-            if ((c as any).isURDFCollider && baseObj.urdfName in source.colliders) {
-                this.colliders[baseObj.urdfName] = c as URDFCollider;
-            }
-            if ((c as any).isURDFVisual && baseObj.urdfName in source.visual) {
-                this.visual[baseObj.urdfName] = c as URDFVisual;
+            if (c instanceof URDFBase) {
+                if ('isURDFJoint' in c && c.urdfName in source.joints) {
+                    this.joints[c.urdfName] = c as URDFJoint;
+                }
+                if ('isURDFLink' in c && c.urdfName in source.links) {
+                    this.links[c.urdfName] = c as URDFLink;
+                }
+                if ('isURDFCollider' in c && c.urdfName in source.colliders) {
+                    this.colliders[c.urdfName] = c as URDFCollider;
+                }
+                if ('isURDFVisual' in c && c.urdfName in source.visual) {
+                    this.visual[c.urdfName] = c as URDFVisual;
+                }
             }
         });
 
