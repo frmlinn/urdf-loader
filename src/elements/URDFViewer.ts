@@ -6,6 +6,13 @@ import { URDFRobot, URDFJoint, releaseMeshResources, retainResource, releaseReso
 const tempVec2 = new THREE.Vector2();
 const emptyRaycast = () => {};
 
+// --- Variables Globales Cacheadas (O(0) Garbage Collection) ---
+const _tempBox = new THREE.Box3();
+const _globalBox = new THREE.Box3();
+const _tempGlobalSphere = new THREE.Sphere();
+const _tempVec3 = new THREE.Vector3();
+const _tempVec3Scale = new THREE.Vector3();
+
 export class URDFViewer extends HTMLElement {
     public scene: THREE.Scene;
     public world: THREE.Object3D;
@@ -27,11 +34,16 @@ export class URDFViewer extends HTMLElement {
     private _requestId: number = 0;
     private resizeObserver: ResizeObserver;
 
+    // --- Estado Interno de Sombras (Histéresis y Deferred Update) ---
+    private _shadowsNeedUpdate: boolean = false;
+    private _currentShadowCenter: THREE.Vector3 = new THREE.Vector3();
+    private _currentShadowRadius: number = 0;
+
     static get observedAttributes() {
         return [
             'package', 'urdf', 'up', 'display-shadow', 
             'ambient-color', 'ignore-limits', 'show-collision',
-            'auto-redraw', 'no-auto-recenter', 'floor-offset'
+            'auto-redraw', 'no-auto-recenter'
         ];
     }
 
@@ -78,9 +90,6 @@ export class URDFViewer extends HTMLElement {
 
     get angles(): Record<string, number | number[]> { return this.jointValues; }
     set angles(v: Record<string, number | number[]>) { this.jointValues = v; }
-
-    get floorOffset(): number { return parseFloat(this.getAttribute('floor-offset') || '0'); }
-    set floorOffset(val: number) { this.setAttribute('floor-offset', val.toString()); }
 
     // --- Constructor ---
 
@@ -147,7 +156,8 @@ export class URDFViewer extends HTMLElement {
         this.controls.enableDamping = false;
         this.controls.maxDistance = 50;
         this.controls.minDistance = 0.25;
-        this.controls.addEventListener('change', () => this.recenter());
+        // Desacoplamiento Real O(1)
+        this.controls.addEventListener('change', () => this.redraw());
 
         // Collider Material Setup
         this._collisionMaterial = new THREE.MeshPhongMaterial({
@@ -178,7 +188,6 @@ export class URDFViewer extends HTMLElement {
         this.resizeObserver.disconnect();
         cancelAnimationFrame(this._renderLoopId);
         if (this.robot) {
-            // El recorrido es aceptable para limpiezas profundas de abortos, pero la optimización brilla en runtime
             this.robot.traverse((c) => {
                 if (c instanceof THREE.Mesh) releaseMeshResources(c);
             });
@@ -191,7 +200,8 @@ export class URDFViewer extends HTMLElement {
         if (oldval === newval) return;
 
         this._updateCollisionVisibility();
-        if (!this.noAutoRecenter) {
+        
+        if (!this.noAutoRecenter && attr !== 'display-shadow') {
             this.recenter();
         }
 
@@ -210,8 +220,10 @@ export class URDFViewer extends HTMLElement {
             case 'ignore-limits':
                 this._setIgnoreLimits(this.ignoreLimits, true);
                 break;
-            case 'floor-offset':
-                this.recenter();
+            case 'display-shadow':
+                this.directionalLight.castShadow = this.displayShadow;
+                if (this.displayShadow) this._shadowsNeedUpdate = true;
+                this.redraw();
                 break;
         }
     }
@@ -240,27 +252,42 @@ export class URDFViewer extends HTMLElement {
     }
 
     public recenter() {
-        this._updateEnvironment();
+        if (!this.robot) return;
+        this.world.updateMatrixWorld(true);
+
+        // Forzamos actualización de plano de suelo y sombras sin histéresis
+        this._updateShadowBounds(true);
+
+        if (!_tempGlobalSphere.isEmpty()) {
+            this.controls.target.copy(_tempGlobalSphere.center);
+        }
         this.redraw();
     }
 
     public setJointValue(jointName: string, ...values: (number | null)[]) {
         if (!this.robot || !this.robot.joints[jointName]) return;
 
+        // Inyección Reactiva (Dirty Flag)
         if (this.robot.joints[jointName].setJointValue(...values)) {
+            this._shadowsNeedUpdate = true; // Deferred Update
             this.redraw();
             this.dispatchEvent(new CustomEvent('angle-change', { bubbles: true, cancelable: true, composed: true, detail: jointName }));
         }
     }
 
     public setJointValues(values: Record<string, number | (number | null)[]>) {
+        let didChange = false;
         for (const name in values) {
             const val = values[name];
             if (Array.isArray(val)) {
-                this.setJointValue(name, ...val);
+                if (this.robot?.joints[name]?.setJointValue(...val)) didChange = true;
             } else {
-                this.setJointValue(name, val);
+                if (this.robot?.joints[name]?.setJointValue(val)) didChange = true;
             }
+        }
+        if (didChange) {
+            this._shadowsNeedUpdate = true;
+            this.redraw();
         }
     }
 
@@ -268,6 +295,13 @@ export class URDFViewer extends HTMLElement {
 
     private _renderLoop = () => {
         if (this.isConnected) {
+            // Evaluamos la cinemática diferida una sola vez justo antes del render
+            if (this._shadowsNeedUpdate) {
+                this.world.updateMatrixWorld(true);
+                this._updateShadowBounds(); // Actualiza plano y (si procede) cámara de sombras
+                this._shadowsNeedUpdate = false;
+            }
+
             if (this._dirty || this.autoRedraw) {
                 this.renderer.render(this.scene, this.camera);
                 this._dirty = false;
@@ -277,44 +311,93 @@ export class URDFViewer extends HTMLElement {
         this._renderLoopId = requestAnimationFrame(this._renderLoop);
     }
 
-    private _updateEnvironment() {
+    // Heurística de AABB Híbrido O(M)
+    private _calculateSceneBounds(targetSphere: THREE.Sphere): number {
+        _globalBox.makeEmpty();
+        let minY = Infinity;
+
+        if (!this.robot || this.robot.flatVisualMeshes.length === 0) {
+            targetSphere.makeEmpty();
+            return 0;
+        }
+
+        for (let i = 0; i < this.robot.flatVisualMeshes.length; i++) {
+            const mesh = this.robot.flatVisualMeshes[i];
+            
+            // 1. Box calculation (Para inflar _globalBox globalmente)
+            const localBox = mesh.geometry.boundingBox!; 
+            _tempBox.copy(localBox).applyMatrix4(mesh.matrixWorld);
+            _globalBox.union(_tempBox);
+            const boxMinY = _tempBox.min.y;
+
+            // 2. Sphere calculation (Extrae radio escalado globalmente)
+            const localSphere = mesh.geometry.boundingSphere!;
+            _tempVec3.copy(localSphere.center).applyMatrix4(mesh.matrixWorld);
+            
+            _tempVec3Scale.setFromMatrixScale(mesh.matrixWorld);
+            const maxScale = Math.max(Math.abs(_tempVec3Scale.x), Math.abs(_tempVec3Scale.y), Math.abs(_tempVec3Scale.z));
+            const sphereMinY = _tempVec3.y - (localSphere.radius * maxScale);
+
+            // 3. Hybrid Heuristic: La malla real NUNCA puede ser más baja que 
+            // el mínimo de su Caja NI el mínimo de su Esfera envolvente.
+            // Seleccionamos el mínimo más alto (es decir, el límite inferior más ajustado y realista)
+            const tightMinY = Math.max(boxMinY, sphereMinY);
+
+            if (tightMinY < minY) minY = tightMinY;
+        }
+
+        // Extraemos la esfera perfecta para el frustum ancho de la cámara
+        _globalBox.getBoundingSphere(targetSphere);
+
+        return minY === Infinity ? 0 : minY;
+    }
+
+    private _updateShadowBounds(force: boolean = false) {
         if (!this.robot) return;
 
-        this.world.updateMatrixWorld();
+        const currentMinY = this._calculateSceneBounds(_tempGlobalSphere);
+        if (_tempGlobalSphere.isEmpty()) return;
 
-        const bbox = new THREE.Box3();
-        bbox.makeEmpty();
+        // --- CORRECCIÓN ERROR 1: Actualización Constante ---
+        // Sincronizamos el suelo en tiempo real, totalmente desacoplado 
+        // de la histéresis de sombras. (Elimina atravesamientos)
+        this.plane.position.y = currentMinY - 1e-3;
+
+        // Si las sombras están apagadas, no necesitamos recalcular cámara
+        if (!this.displayShadow) return;
+
+        // --- Histéresis de Sombras ---
+        const center = _tempGlobalSphere.center;
+        const radius = _tempGlobalSphere.radius;
+        const targetRadius = radius * 1.15; // 15% holgura
         
-        // Uso del caché O(N) para expandir la caja sin recursividad pesada
-        if (this.robot.flatVisualMeshes.length > 0) {
-            this.robot.flatVisualMeshes.forEach(mesh => bbox.expandByObject(mesh));
+        if (!force && this._currentShadowRadius > 0) {
+            const dist = this._currentShadowCenter.distanceTo(center);
+            // Si la nueva envolvente cabe sobradamente en nuestro frustum actual, ignoramos
+            if (dist + radius < this._currentShadowRadius) {
+                return; 
+            }
         }
 
-        if (bbox.isEmpty()) return;
-
-        const center = bbox.getCenter(new THREE.Vector3());
-        
-        this.controls.target.y = center.y;
-
-        this.plane.position.y = bbox.min.y - 1e-3 - this.floorOffset;
+        // Actualizamos caché interno de sombras
+        this._currentShadowCenter.copy(center);
+        this._currentShadowRadius = targetRadius;
 
         const dirLight = this.directionalLight;
-        dirLight.castShadow = this.displayShadow;
+        const cam = dirLight.shadow.camera as THREE.OrthographicCamera;
+        
+        cam.left = cam.bottom = -targetRadius;
+        cam.right = cam.top = targetRadius;
 
-        if (this.displayShadow) {
-            const sphere = bbox.getBoundingSphere(new THREE.Sphere());
-            const minmax = sphere.radius;
-            const cam = dirLight.shadow.camera as THREE.OrthographicCamera;
-            
-            cam.left = cam.bottom = -minmax;
-            cam.right = cam.top = minmax;
+        const offset = dirLight.position.clone().sub(dirLight.target.position);
+        dirLight.target.position.copy(center);
+        dirLight.position.copy(center).add(offset);
 
-            const offset = dirLight.position.clone().sub(dirLight.target.position);
-            dirLight.target.position.copy(center);
-            dirLight.position.copy(center).add(offset);
+        const distance = dirLight.position.distanceTo(center);
+        cam.near = Math.max(0.1, distance - targetRadius);
+        cam.far = distance + targetRadius + 5.0; 
 
-            cam.updateProjectionMatrix();
-        }
+        cam.updateProjectionMatrix();
     }
 
     private _scheduleLoad() {
@@ -347,7 +430,6 @@ export class URDFViewer extends HTMLElement {
         this._requestId++;
         const currentRequestId = this._requestId;
 
-        // Optimización: Procesar materiales usando el caché en lugar de traverse recursivo
         const updateMaterials = (robot: URDFRobot) => {
             robot.flatVisualMeshes.forEach(c => {
                 c.castShadow = true;
@@ -400,14 +482,11 @@ export class URDFViewer extends HTMLElement {
         this.loader.packages = parsedPkg;
         this.loader.parseCollision = true;
 
-        // Disparador principal asíncrono
         manager.onLoad = () => {
             if (this._requestId !== currentRequestId || !this.robot) return;
 
-            // 1. Generar el caché plano de mallas una sola vez al terminar de cargar todo
             this.robot.updateMeshCaches();
 
-            // 2. Ejecutar tareas de preparación O(N) sin recursividad pesada
             updateMaterials(this.robot);
             this._setIgnoreLimits(this.ignoreLimits);
             this._updateCollisionVisibility();
@@ -438,29 +517,21 @@ export class URDFViewer extends HTMLElement {
 
         const showCollision = this.showCollision;
         const collisionMaterial = this._collisionMaterial;
-        
-        // Evaluación instantánea O(1) de fallback
         const hasColliders = Object.keys(this.robot.colliders).length > 0;
 
-        // 1. Procesar Mallas Visuales
         this.robot.flatVisualMeshes.forEach(mesh => {
             if (hasColliders) {
-                // Optimización de Raycast (Anula CPU hit en pointer events)
                 mesh.raycast = emptyRaycast;
             } else {
-                // Fallback seguro usando delete para recuperar la función del prototype
                 delete (mesh as any).raycast;
             }
         });
 
-        // 2. Procesar Mallas de Colisión
         this.robot.flatColliderMeshes.forEach(mesh => {
-            // Siempre activas en raycast para interceptar clicks físicos
             delete (mesh as any).raycast; 
             mesh.material = collisionMaterial;
             mesh.castShadow = false;
 
-            // Propagar la visibilidad al grupo URDFCollider de forma limpia
             let curr = mesh.parent;
             while (curr && !('isURDFCollider' in curr)) {
                 curr = curr.parent;
@@ -485,7 +556,7 @@ export class URDFViewer extends HTMLElement {
         if (char === 'Z') this.world.rotation.set(sign === '+' ? -HALFPI : HALFPI, 0, 0);
         if (char === 'Y') this.world.rotation.set(sign === '+' ? 0 : PI, 0, 0);
         
-        this.redraw();
+        this.recenter();
     }
 
     private _setIgnoreLimits(ignore: boolean, dispatch: boolean = false) {

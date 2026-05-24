@@ -346,7 +346,6 @@ export class URDFRobot extends URDFLink {
     public visual: Record<string, URDFVisual> = {};
     public frames: Record<string, URDFBase> = {};
 
-    // --- CACHÉ PLANO DE MALLAS (FASE 2) ---
     public flatVisualMeshes: Mesh[] = [];
     public flatColliderMeshes: Mesh[] = [];
 
@@ -356,6 +355,13 @@ export class URDFRobot extends URDFLink {
 
         this.traverse((c) => {
             if (c instanceof Mesh) {
+                
+                // Aseguramos que BoundingBox y BoundingSphere estén listos para matemáticas O(M)
+                if (c.geometry) {
+                    if (!c.geometry.boundingSphere) c.geometry.computeBoundingSphere();
+                    if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
+                }
+
                 let isCollider = false;
                 let curr: Object3D | null = c.parent;
                 // Subimos por el árbol para saber si esta malla es colisión o visual
@@ -423,7 +429,7 @@ export class URDFRobot extends URDFLink {
             ...this.joints,
         };
 
-        // Autogenerar el caché tras clonar para mantener la optimización $O(1)$
+        // Autogenerar el caché tras clonar para mantener la optimización O(1)
         this.updateMeshCaches();
 
         return this;
