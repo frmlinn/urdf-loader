@@ -346,7 +346,6 @@ export class URDFRobot extends URDFLink {
     public visual: Record<string, URDFVisual> = {};
     public frames: Record<string, URDFBase> = {};
 
-    // --- CACHÉ PLANO DE MALLAS (FASE 2) ---
     public flatVisualMeshes: Mesh[] = [];
     public flatColliderMeshes: Mesh[] = [];
 
@@ -356,6 +355,12 @@ export class URDFRobot extends URDFLink {
 
         this.traverse((c) => {
             if (c instanceof Mesh) {
+                
+                // Aseguramos que la BoundingSphere nativa exista para la matemática O(M)
+                if (c.geometry && !c.geometry.boundingSphere) {
+                    c.geometry.computeBoundingSphere();
+                }
+
                 let isCollider = false;
                 let curr: Object3D | null = c.parent;
                 // Subimos por el árbol para saber si esta malla es colisión o visual
