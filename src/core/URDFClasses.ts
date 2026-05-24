@@ -356,9 +356,10 @@ export class URDFRobot extends URDFLink {
         this.traverse((c) => {
             if (c instanceof Mesh) {
                 
-                // Aseguramos que la BoundingSphere nativa exista para la matemática O(M)
-                if (c.geometry && !c.geometry.boundingSphere) {
-                    c.geometry.computeBoundingSphere();
+                // Aseguramos que BoundingBox y BoundingSphere estén listos para matemáticas O(M)
+                if (c.geometry) {
+                    if (!c.geometry.boundingSphere) c.geometry.computeBoundingSphere();
+                    if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
                 }
 
                 let isCollider = false;
@@ -428,7 +429,7 @@ export class URDFRobot extends URDFLink {
             ...this.joints,
         };
 
-        // Autogenerar el caché tras clonar para mantener la optimización $O(1)$
+        // Autogenerar el caché tras clonar para mantener la optimización O(1)
         this.updateMeshCaches();
 
         return this;

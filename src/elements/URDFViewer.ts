@@ -7,9 +7,11 @@ const tempVec2 = new THREE.Vector2();
 const emptyRaycast = () => {};
 
 // --- Variables Globales Cacheadas (O(0) Garbage Collection) ---
-const _tempVec3 = new THREE.Vector3();
-const _tempSphere = new THREE.Sphere();
+const _tempBox = new THREE.Box3();
+const _globalBox = new THREE.Box3();
 const _tempGlobalSphere = new THREE.Sphere();
+const _tempVec3 = new THREE.Vector3();
+const _tempVec3Scale = new THREE.Vector3();
 
 export class URDFViewer extends HTMLElement {
     public scene: THREE.Scene;
@@ -41,7 +43,7 @@ export class URDFViewer extends HTMLElement {
         return [
             'package', 'urdf', 'up', 'display-shadow', 
             'ambient-color', 'ignore-limits', 'show-collision',
-            'auto-redraw', 'no-auto-recenter', 'floor-offset'
+            'auto-redraw', 'no-auto-recenter'
         ];
     }
 
@@ -88,9 +90,6 @@ export class URDFViewer extends HTMLElement {
 
     get angles(): Record<string, number | number[]> { return this.jointValues; }
     set angles(v: Record<string, number | number[]>) { this.jointValues = v; }
-
-    get floorOffset(): number { return parseFloat(this.getAttribute('floor-offset') || '0'); }
-    set floorOffset(val: number) { this.setAttribute('floor-offset', val.toString()); }
 
     // --- Constructor ---
 
@@ -157,7 +156,7 @@ export class URDFViewer extends HTMLElement {
         this.controls.enableDamping = false;
         this.controls.maxDistance = 50;
         this.controls.minDistance = 0.25;
-        // FASE 1: Desacoplamiento Real O(1). Orbitar no dispara matemáticas espaciales.
+        // Desacoplamiento Real O(1)
         this.controls.addEventListener('change', () => this.redraw());
 
         // Collider Material Setup
@@ -256,24 +255,19 @@ export class URDFViewer extends HTMLElement {
         if (!this.robot) return;
         this.world.updateMatrixWorld(true);
 
-        const minY = this._calculateSceneBounds(_tempGlobalSphere);
-        if (_tempGlobalSphere.isEmpty()) return;
-
-        // Centramos la cámara orbital
-        this.controls.target.copy(_tempGlobalSphere.center);
-        
-        // Ajustamos la altura del suelo respetando la pieza más baja y el floorOffset
-        this.plane.position.y = minY - 1e-3 - this.floorOffset;
-
-        // Forzamos actualización de sombras sin histéresis (reseteo total)
+        // Forzamos actualización de plano de suelo y sombras sin histéresis
         this._updateShadowBounds(true);
+
+        if (!_tempGlobalSphere.isEmpty()) {
+            this.controls.target.copy(_tempGlobalSphere.center);
+        }
         this.redraw();
     }
 
     public setJointValue(jointName: string, ...values: (number | null)[]) {
         if (!this.robot || !this.robot.joints[jointName]) return;
 
-        // FASE 5: Inyección Reactiva (Dirty Flag)
+        // Inyección Reactiva (Dirty Flag)
         if (this.robot.joints[jointName].setJointValue(...values)) {
             this._shadowsNeedUpdate = true; // Deferred Update
             this.redraw();
@@ -302,9 +296,9 @@ export class URDFViewer extends HTMLElement {
     private _renderLoop = () => {
         if (this.isConnected) {
             // Evaluamos la cinemática diferida una sola vez justo antes del render
-            if (this._shadowsNeedUpdate && this.displayShadow) {
+            if (this._shadowsNeedUpdate) {
                 this.world.updateMatrixWorld(true);
-                this._updateShadowBounds();
+                this._updateShadowBounds(); // Actualiza plano y (si procede) cámara de sombras
                 this._shadowsNeedUpdate = false;
             }
 
@@ -317,44 +311,65 @@ export class URDFViewer extends HTMLElement {
         this._renderLoopId = requestAnimationFrame(this._renderLoop);
     }
 
-    // FASE 3: Motor Matemático Reactivo O(M)
+    // Heurística de AABB Híbrido O(M)
     private _calculateSceneBounds(targetSphere: THREE.Sphere): number {
-        targetSphere.makeEmpty();
+        _globalBox.makeEmpty();
         let minY = Infinity;
 
-        if (!this.robot || this.robot.flatVisualMeshes.length === 0) return 0;
+        if (!this.robot || this.robot.flatVisualMeshes.length === 0) {
+            targetSphere.makeEmpty();
+            return 0;
+        }
 
         for (let i = 0; i < this.robot.flatVisualMeshes.length; i++) {
             const mesh = this.robot.flatVisualMeshes[i];
-            // La esfera base ya se pre-calculó en tiempo de carga
-            const localSphere = mesh.geometry.boundingSphere!; 
             
-            // Transformación instantánea de Vector a coordenadas Mundiales O(1)
+            // 1. Box calculation (Para inflar _globalBox globalmente)
+            const localBox = mesh.geometry.boundingBox!; 
+            _tempBox.copy(localBox).applyMatrix4(mesh.matrixWorld);
+            _globalBox.union(_tempBox);
+            const boxMinY = _tempBox.min.y;
+
+            // 2. Sphere calculation (Extrae radio escalado globalmente)
+            const localSphere = mesh.geometry.boundingSphere!;
             _tempVec3.copy(localSphere.center).applyMatrix4(mesh.matrixWorld);
             
-            _tempSphere.set(_tempVec3, localSphere.radius);
-            targetSphere.union(_tempSphere);
+            _tempVec3Scale.setFromMatrixScale(mesh.matrixWorld);
+            const maxScale = Math.max(Math.abs(_tempVec3Scale.x), Math.abs(_tempVec3Scale.y), Math.abs(_tempVec3Scale.z));
+            const sphereMinY = _tempVec3.y - (localSphere.radius * maxScale);
 
-            // Rastreamos el punto más bajo (suelo del robot)
-            const meshMinY = _tempVec3.y - localSphere.radius;
-            if (meshMinY < minY) minY = meshMinY;
+            // 3. Hybrid Heuristic: La malla real NUNCA puede ser más baja que 
+            // el mínimo de su Caja NI el mínimo de su Esfera envolvente.
+            // Seleccionamos el mínimo más alto (es decir, el límite inferior más ajustado y realista)
+            const tightMinY = Math.max(boxMinY, sphereMinY);
+
+            if (tightMinY < minY) minY = tightMinY;
         }
+
+        // Extraemos la esfera perfecta para el frustum ancho de la cámara
+        _globalBox.getBoundingSphere(targetSphere);
 
         return minY === Infinity ? 0 : minY;
     }
 
-    // FASE 4: Histéresis del Frustum de Sombras
     private _updateShadowBounds(force: boolean = false) {
-        if (!this.robot || !this.displayShadow) return;
+        if (!this.robot) return;
 
-        this._calculateSceneBounds(_tempGlobalSphere);
+        const currentMinY = this._calculateSceneBounds(_tempGlobalSphere);
         if (_tempGlobalSphere.isEmpty()) return;
 
+        // --- CORRECCIÓN ERROR 1: Actualización Constante ---
+        // Sincronizamos el suelo en tiempo real, totalmente desacoplado 
+        // de la histéresis de sombras. (Elimina atravesamientos)
+        this.plane.position.y = currentMinY - 1e-3;
+
+        // Si las sombras están apagadas, no necesitamos recalcular cámara
+        if (!this.displayShadow) return;
+
+        // --- Histéresis de Sombras ---
         const center = _tempGlobalSphere.center;
         const radius = _tempGlobalSphere.radius;
-
-        // Histéresis: 15% de holgura extra para evitar Shadow Shimmering
-        const targetRadius = radius * 1.15;
+        const targetRadius = radius * 1.15; // 15% holgura
         
         if (!force && this._currentShadowRadius > 0) {
             const dist = this._currentShadowCenter.distanceTo(center);
@@ -371,19 +386,16 @@ export class URDFViewer extends HTMLElement {
         const dirLight = this.directionalLight;
         const cam = dirLight.shadow.camera as THREE.OrthographicCamera;
         
-        // Redimensionado del mapa ortográfico
         cam.left = cam.bottom = -targetRadius;
         cam.right = cam.top = targetRadius;
 
-        // Offset de Tracking: Mantenemos el ángulo de luz que haya escogido el desarrollador
         const offset = dirLight.position.clone().sub(dirLight.target.position);
         dirLight.target.position.copy(center);
         dirLight.position.copy(center).add(offset);
 
-        // Ajuste inteligente de near/far basado en la distancia al objetivo y el offset del suelo
         const distance = dirLight.position.distanceTo(center);
-        cam.near = Math.max(0.1, distance - targetRadius - Math.abs(this.floorOffset));
-        cam.far = distance + targetRadius + Math.abs(this.floorOffset) + 5.0; // Rango para cortar plano virtual
+        cam.near = Math.max(0.1, distance - targetRadius);
+        cam.far = distance + targetRadius + 5.0; 
 
         cam.updateProjectionMatrix();
     }
@@ -473,7 +485,6 @@ export class URDFViewer extends HTMLElement {
         manager.onLoad = () => {
             if (this._requestId !== currentRequestId || !this.robot) return;
 
-            // FASE 2: Inicialización y precálculo de cachés
             this.robot.updateMeshCaches();
 
             updateMaterials(this.robot);
