@@ -8,7 +8,7 @@ const _tempQuat = new Quaternion();
 const _tempScale = new Vector3(1.0, 1.0, 1.0);
 const _tempPosition = new Vector3();
 
-// --- SISTEMA DE GESTIÓN DE MEMORIA (REFERENCE COUNTING) ---
+// --- SISTEMA DE GESTIÓN DE MEMORIA (REFERENCE COUNTING) - MANTENIDO ---
 
 export function retainResource(res: any) {
     if (!res) return;
@@ -195,9 +195,8 @@ export class URDFJoint extends URDFBase {
         return this;
     }
 
-    public setJointValue(...values: (number | null)[]): boolean {
-        const parsedValues = values.map(v => (v === null ? null : Reflect.apply(parseFloat, null, [String(v)])));
-
+    // [FASE 1]: Optimizado para Cinemática Inversa (Cero Garbage Collection por frame)
+    public setJointValue(...values: (number | string | null)[]): boolean {
         if (!this.origPosition || !this.origQuaternion) {
             this.origPosition = this.position.clone();
             this.origQuaternion = this.quaternion.clone();
@@ -205,8 +204,8 @@ export class URDFJoint extends URDFBase {
 
         let didUpdate = false;
 
-        for (const joint of this.mimicJoints) {
-            didUpdate = joint.updateFromMimickedJoint(...parsedValues) || didUpdate;
+        for (let i = 0; i < this.mimicJoints.length; i++) {
+            didUpdate = this.mimicJoints[i].updateFromMimickedJoint(...values) || didUpdate;
         }
 
         switch (this.jointType) {
@@ -215,8 +214,11 @@ export class URDFJoint extends URDFBase {
 
             case 'continuous':
             case 'revolute': {
-                let angle = parsedValues[0];
-                if (angle == null || angle === this.jointValue[0]) return didUpdate;
+                const rawVal = values[0];
+                if (rawVal == null) return didUpdate;
+                let angle = typeof rawVal === 'string' ? parseFloat(rawVal) : rawVal;
+                
+                if (angle === this.jointValue[0]) return didUpdate;
 
                 if (!this.ignoreLimits && this.jointType === 'revolute') {
                     angle = Math.min(this.limit.upper, angle);
@@ -236,8 +238,11 @@ export class URDFJoint extends URDFBase {
             }
 
             case 'prismatic': {
-                let pos = parsedValues[0];
-                if (pos == null || pos === this.jointValue[0]) return didUpdate;
+                const rawVal = values[0];
+                if (rawVal == null) return didUpdate;
+                let pos = typeof rawVal === 'string' ? parseFloat(rawVal) : rawVal;
+                
+                if (pos === this.jointValue[0]) return didUpdate;
 
                 if (!this.ignoreLimits) {
                     pos = Math.min(this.limit.upper, pos);
@@ -257,16 +262,19 @@ export class URDFJoint extends URDFBase {
             }
 
             case 'floating': {
-                if (this.jointValue.every((value, index) => parsedValues[index] === value || parsedValues[index] === null)) {
-                    return didUpdate;
-                }
-
+                let valuesChanged = false;
                 for (let i = 0; i < 6; i++) {
-                    const val = parsedValues[i];
-                    if (val !== null && val !== undefined) {
-                        this.jointValue[i] = val;
+                    const rawVal = values[i];
+                    if (rawVal !== null && rawVal !== undefined) {
+                        const parsedVal = typeof rawVal === 'string' ? parseFloat(rawVal) : rawVal;
+                        if (this.jointValue[i] !== parsedVal) {
+                            this.jointValue[i] = parsedVal;
+                            valuesChanged = true;
+                        }
                     }
                 }
+                
+                if (!valuesChanged) return didUpdate;
 
                 _tempOrigTransform.compose(this.origPosition, this.origQuaternion, _tempScale);
                 _tempQuat.setFromEuler(_tempEuler.set(this.jointValue[3], this.jointValue[4], this.jointValue[5], 'XYZ'));
@@ -282,16 +290,19 @@ export class URDFJoint extends URDFBase {
             }
 
             case 'planar': {
-                if (this.jointValue.every((value, index) => parsedValues[index] === value || parsedValues[index] === null)) {
-                    return didUpdate;
-                }
-
+                let valuesChanged = false;
                 for (let i = 0; i < 3; i++) {
-                    const val = parsedValues[i];
-                    if (val !== null && val !== undefined) {
-                        this.jointValue[i] = val;
+                    const rawVal = values[i];
+                    if (rawVal !== null && rawVal !== undefined) {
+                        const parsedVal = typeof rawVal === 'string' ? parseFloat(rawVal) : rawVal;
+                        if (this.jointValue[i] !== parsedVal) {
+                            this.jointValue[i] = parsedVal;
+                            valuesChanged = true;
+                        }
                     }
                 }
+                
+                if (!valuesChanged) return didUpdate;
 
                 _tempOrigTransform.compose(this.origPosition, this.origQuaternion, _tempScale);
                 _tempQuat.setFromAxisAngle(this.axis, this.jointValue[2]);
@@ -317,11 +328,18 @@ export class URDFMimicJoint extends URDFJoint {
     public offset = 0;
     public multiplier = 1;
 
-    public updateFromMimickedJoint(...values: (number | null)[]): boolean {
-        const modifiedValues = values.map(x => {
-            if (x === null) return null;
-            return x * this.multiplier + this.offset;
-        });
+    // [FASE 1]: Optimizado para evitar pausas del Garbage Collector
+    public updateFromMimickedJoint(...values: (number | string | null)[]): boolean {
+        const modifiedValues: (number | null)[] = [];
+        for (let i = 0; i < values.length; i++) {
+            const x = values[i];
+            if (x === null || x === undefined) {
+                modifiedValues.push(null);
+            } else {
+                const parsed = typeof x === 'string' ? parseFloat(x) : x;
+                modifiedValues.push(parsed * this.multiplier + this.offset);
+            }
+        }
 
         return super.setJointValue(...modifiedValues);
     }
@@ -349,41 +367,42 @@ export class URDFRobot extends URDFLink {
     public flatVisualMeshes: Mesh[] = [];
     public flatColliderMeshes: Mesh[] = [];
 
+    // [FASE 2 ADAPTADA]: Recorrido O(N) eficiente, pero garantizando el cálculo 
+    // de cajas matemáticas para la Cinemática Inversa y físicas.
     public updateMeshCaches() {
         this.flatVisualMeshes = [];
         this.flatColliderMeshes = [];
 
-        this.traverse((c) => {
-            if (c instanceof Mesh) {
-                
-                // Aseguramos que BoundingBox y BoundingSphere estén listos para matemáticas O(M)
-                if (c.geometry) {
-                    if (!c.geometry.boundingSphere) c.geometry.computeBoundingSphere();
-                    if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
+        const traverseCaches = (obj: Object3D, isColliderContext: boolean) => {
+            let currentContext = isColliderContext;
+            
+            if ('isURDFCollider' in obj) {
+                currentContext = true;
+            } else if ('isURDFVisual' in obj) {
+                currentContext = false;
+            }
+
+            if (obj instanceof Mesh) {
+                // Cálculo Eager: Vital para Simulaciones y Físicas
+                if (obj.geometry) {
+                    if (!obj.geometry.boundingSphere) obj.geometry.computeBoundingSphere();
+                    if (!obj.geometry.boundingBox) obj.geometry.computeBoundingBox();
                 }
 
-                let isCollider = false;
-                let curr: Object3D | null = c.parent;
-                // Subimos por el árbol para saber si esta malla es colisión o visual
-                while (curr && curr !== this) {
-                    if ('isURDFCollider' in curr) {
-                        isCollider = true;
-                        break;
-                    }
-                    if ('isURDFVisual' in curr) {
-                        isCollider = false;
-                        break;
-                    }
-                    curr = curr.parent;
-                }
-                
-                if (isCollider) {
-                    this.flatColliderMeshes.push(c);
+                if (currentContext) {
+                    this.flatColliderMeshes.push(obj);
                 } else {
-                    this.flatVisualMeshes.push(c);
+                    this.flatVisualMeshes.push(obj);
                 }
             }
-        });
+
+            const children = obj.children;
+            for (let i = 0, l = children.length; i < l; i++) {
+                traverseCaches(children[i], currentContext);
+            }
+        };
+
+        traverseCaches(this, false);
     }
 
     override copy(source: this, recursive?: boolean): this {
@@ -412,6 +431,7 @@ export class URDFRobot extends URDFLink {
                     this.visual[c.urdfName] = c as URDFVisual;
                 }
             }
+            // Sistema de memoria original respetado
             if (c instanceof Mesh) {
                 retainMeshResources(c);
             }
@@ -429,7 +449,6 @@ export class URDFRobot extends URDFLink {
             ...this.joints,
         };
 
-        // Autogenerar el caché tras clonar para mantener la optimización O(1)
         this.updateMeshCaches();
 
         return this;
@@ -439,7 +458,7 @@ export class URDFRobot extends URDFLink {
         return this.frames[name];
     }
 
-    public setJointValue(jointName: string, ...angle: (number | null)[]): boolean {
+    public setJointValue(jointName: string, ...angle: (number | string | null)[]): boolean {
         const joint = this.joints[jointName];
         if (joint) {
             return joint.setJointValue(...angle);
@@ -447,7 +466,7 @@ export class URDFRobot extends URDFLink {
         return false;
     }
 
-    public setJointValues(values: Record<string, number | (number | null)[]>): boolean {
+    public setJointValues(values: Record<string, number | (number | string | null)[]>): boolean {
         let didChange = false;
         for (const name in values) {
             const value = values[name];
