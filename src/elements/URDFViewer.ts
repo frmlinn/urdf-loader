@@ -26,6 +26,8 @@ export class URDFViewer extends HTMLElement {
     public robot: URDFRobot | null = null;
     public loader: URDFLoader;
 
+    public loadMeshFunc?: (path: string, manager: THREE.LoadingManager) => Promise<THREE.Object3D | null>;
+
     private _collisionMaterial: THREE.MeshPhongMaterial;
     private _renderLoopId: number = 0;
     private _dirty: boolean = false;
@@ -479,6 +481,9 @@ export class URDFViewer extends HTMLElement {
 
         const manager = new THREE.LoadingManager();
         this.loader = new URDFLoader(manager);
+        if (this.loadMeshFunc) {
+            this.loader.loadMeshFunc = this.loadMeshFunc;
+        }
         this.loader.packages = parsedPkg;
         this.loader.parseCollision = true;
 
