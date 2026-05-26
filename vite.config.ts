@@ -2,6 +2,18 @@ import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
 export default defineConfig(({ mode }) => {
+  const isDemo = mode === 'demo';
+
+  if (isDemo) {
+    return {
+      root: resolve(__dirname, 'demo'),
+      build: {
+        outDir: resolve(__dirname, 'dist-demo'),
+        emptyOutDir: true,
+      }
+    };
+  }
+
   return {
     root: process.cwd(),
     build: {

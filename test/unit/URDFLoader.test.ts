@@ -6,15 +6,26 @@ import { URDFLoader } from '../../src/core/URDFLoader';
 import { URDFRobot, URDFMimicJoint } from '../../src/core/URDFClasses';
 
 // ==========================================
-// FUNCIONES DE APOYO Y UTILIDADES
+// MOCKS & UTILITIES
 // ==========================================
+
+/**
+ * Creates an empty mock mesh to simulate asynchronous geometry loading.
+ * @returns A promise resolving to a Three.js Object3D.
+ */
 async function emptyLoadMeshFunc(): Promise<Object3D> {
     const mesh = new Mesh();
-    (mesh as any).fromCallback = true;
+    // Safely inject mock flag for test tracking
+    Object.defineProperty(mesh, 'fromCallback', { value: true, writable: false });
     return mesh;
 }
 
-function compareRobots(ra: any, rb: any) {
+/**
+ * Recursively asserts deep structural and property equality between two URDF structures.
+ * * @param ra - The reference URDF node.
+ * @param rb - The target URDF node to compare against.
+ */
+function compareRobots(ra: any, rb: any): void {
     if (ra.isURDFRobot) {
         expect(Object.keys(ra.links).sort()).toEqual(Object.keys(rb.links).sort());
         expect(Object.keys(ra.joints).sort()).toEqual(Object.keys(rb.joints).sort());
@@ -58,9 +69,9 @@ function compareRobots(ra: any, rb: any) {
 }
 
 // ==========================================
-// TESTS ORIGINALES MANTENIDOS Y MEJORADOS
+// CONFIGURATION & PARSING TESTS
 // ==========================================
-describe('URDFLoader - Configuración y Opciones', () => {
+describe('URDFLoader - Configuration and Options', () => {
     describe('parseVisual, parseCollision', () => {
         const urdfXML = `
             <robot name="TEST">
@@ -71,7 +82,7 @@ describe('URDFLoader - Configuración y Opciones', () => {
             </robot>
         `;
 
-        it('debería excluir los elementos si las flags son false', () => {
+        it('should exclude geometric elements if configuration flags are false', () => {
             const loader = new URDFLoader();
             loader.parseVisual = false;
             loader.parseCollision = false;
@@ -79,15 +90,15 @@ describe('URDFLoader - Configuración y Opciones', () => {
             
             let visTotal = 0; let colTotal = 0;
             robot.traverse(c => {
-                if ((c as any).isURDFCollider) colTotal++;
-                if ((c as any).isURDFVisual) visTotal++;
+                if ('isURDFCollider' in c) colTotal++;
+                if ('isURDFVisual' in c) visTotal++;
             });
 
             expect(visTotal).toBe(0);
             expect(colTotal).toBe(0);
         });
 
-        it('debería incluir los elementos si las flags son true', () => {
+        it('should include geometric elements if configuration flags are true', () => {
             const loader = new URDFLoader();
             loader.parseVisual = true;
             loader.parseCollision = true;
@@ -95,8 +106,8 @@ describe('URDFLoader - Configuración y Opciones', () => {
             
             let visTotal = 0; let colTotal = 0;
             robot.traverse(c => {
-                if ((c as any).isURDFCollider) colTotal++;
-                if ((c as any).isURDFVisual) visTotal++;
+                if ('isURDFCollider' in c) colTotal++;
+                if ('isURDFVisual' in c) visTotal++;
             });
 
             expect(visTotal).toBe(1);
@@ -104,7 +115,7 @@ describe('URDFLoader - Configuración y Opciones', () => {
         });
     });
 
-    describe('Resolución de Paquetes (packages)', () => {
+    describe('Package Resolution (packages)', () => {
         const urdf = `
             <robot name="TEST">
                 <link name="Body">
@@ -113,7 +124,7 @@ describe('URDFLoader - Configuración y Opciones', () => {
             </robot>
         `;
 
-        it('debería usar valores de objeto para resolver rutas', async () => {
+        it('should use object maps to resolve external paths', async () => {
             const loader = new URDFLoader();
             loader.packages = { 'pkg1': 'path/to/pkg1' };
             let loadedUrl = '';
@@ -125,7 +136,7 @@ describe('URDFLoader - Configuración y Opciones', () => {
             expect(loadedUrl).toEqual('path/to/pkg1/path/model.stl');
         });
 
-        it('debería usar valores evaluados por una función', async () => {
+        it('should evaluate functional values to resolve paths dynamically', async () => {
             const loader = new URDFLoader();
             loader.packages = (pkg) => pkg === 'pkg1' ? 'func/path/1' : '';
             let loadedUrl = '';
@@ -139,8 +150,8 @@ describe('URDFLoader - Configuración y Opciones', () => {
     });
 });
 
-describe('Clonado (Clone)', () => {
-    it('debería clonar un robot de forma exacta incluso tras renombrarlo', () => {
+describe('Cloning Mechanism', () => {
+    it('should clone an URDF robot structure accurately even after renaming', () => {
         const loader = new URDFLoader();
         const robot = loader.parse(`
             <robot name="ORIGINAL">
@@ -157,8 +168,8 @@ describe('Clonado (Clone)', () => {
     });
 });
 
-describe('Material Tags', () => {
-    it('debería parsear colores, transparencia y nombre de material', () => {
+describe('Material Tag Parsing', () => {
+    it('should correctly parse RGBA colors, transparency, and material names', () => {
         const loader = new URDFLoader();
         const res = loader.parse(`
             <robot name="TEST">
@@ -177,8 +188,8 @@ describe('Material Tags', () => {
     });
 });
 
-describe('Parsing Mimic Tags (Errores lógicos)', () => {
-    it('debería detectar bucles infinitos en referencias cruzadas de mimic', () => {
+describe('Mimic Tag Integrity (Logical Validation)', () => {
+    it('should throw an error and abort when encountering infinite mimic loops', () => {
         const loader = new URDFLoader();
         const urdf = `
             <robot name="TEST">
@@ -190,7 +201,7 @@ describe('Parsing Mimic Tags (Errores lógicos)', () => {
         expect(() => loader.parse(urdf)).toThrowError(/Detected an infinite loop of mimic joints/i);
     });
 
-    it('debería usar por defecto multiplier 1 y offset 0 en articulaciones mímicas', () => {
+    it('should default to multiplier 1.0 and offset 0.0 when mimic properties are missing', () => {
         const loader = new URDFLoader();
         const res = loader.parse(`
             <robot name="TEST">
@@ -205,8 +216,8 @@ describe('Parsing Mimic Tags (Errores lógicos)', () => {
     });
 });
 
-describe('Carga de Robot Local Completo (T12)', () => {
-    it('debería parsear el archivo T12.URDF local y construir sus diccionarios', () => {
+describe('Full Local File Parsing', () => {
+    it('should parse local T12.URDF correctly and populate physical maps', () => {
         const loader = new URDFLoader();
         loader.packages = '/urdf';
         loader.loadMeshFunc = emptyLoadMeshFunc;
@@ -223,9 +234,9 @@ describe('Carga de Robot Local Completo (T12)', () => {
 });
 
 // ==========================================
-// FASE 1 & 2: RED, API BOUNDARIES Y DOM
+// PHASE 1 & 2: NETWORK CYCLE AND API BOUNDARIES
 // ==========================================
-describe('Fase 1 y 2: Ciclo de Vida de Red y Fronteras de API (Document/Element)', () => {
+describe('Phase 1 & 2: Network Lifecycle and Native DOM Node Parsing', () => {
     let fetchSpy: any;
 
     beforeEach(() => {
@@ -236,7 +247,7 @@ describe('Fase 1 y 2: Ciclo de Vida de Red y Fronteras de API (Document/Element)
         vi.restoreAllMocks();
     });
 
-    it('debería procesar correctamente una instancia nativa de Document (pre-parseada)', () => {
+    it('should process a native pre-parsed XML Document instance', () => {
         const loader = new URDFLoader();
         const mockURDF = `<robot name="DOMRobot"><link name="L1"/></robot>`;
         const xmlDoc = new DOMParser().parseFromString(mockURDF, 'text/xml');
@@ -246,7 +257,7 @@ describe('Fase 1 y 2: Ciclo de Vida de Red y Fronteras de API (Document/Element)
         expect(Object.keys(robot.links)).toHaveLength(1);
     });
 
-    it('debería procesar correctamente una instancia nativa de Element (nodo raíz)', () => {
+    it('should process a native XML Element root node instance', () => {
         const loader = new URDFLoader();
         const mockURDF = `<robot name="ElementRobot"><link name="L1"/></robot>`;
         const xmlDoc = new DOMParser().parseFromString(mockURDF, 'text/xml');
@@ -256,7 +267,7 @@ describe('Fase 1 y 2: Ciclo de Vida de Red y Fronteras de API (Document/Element)
         expect(robot.robotName).toBe('ElementRobot');
     });
 
-    it('debería realizar un fetch al endpoint en loadAsync y rechazar 404s', async () => {
+    it('should issue a fetch request in loadAsync and reject upon 404', async () => {
         fetchSpy.mockResolvedValueOnce({
             ok: true, text: async () => `<robot name="NetworkRobot"><link name="Base"/></robot>`
         } as Response);
@@ -273,10 +284,10 @@ describe('Fase 1 y 2: Ciclo de Vida de Red y Fronteras de API (Document/Element)
 });
 
 // ==========================================
-// FASE 3: RESILIENCIA Y TOLERANCIA A FALLOS
+// PHASE 3: FAULT TOLERANCE
 // ==========================================
-describe('Fase 3: Resiliencia a Fallos y Tolerancia de Mallas', () => {
-    it('debería completar la instanciación estructural aunque una malla falle en descargarse (Fallo grácil)', async () => {
+describe('Phase 3: Mesh Fault Tolerance and Resiliency', () => {
+    it('should complete topological instantiation gracefully even if a mesh fetch fails', async () => {
         const loader = new URDFLoader();
         const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -288,15 +299,15 @@ describe('Fase 3: Resiliencia a Fallos y Tolerancia de Mallas', () => {
             </robot>
         `;
 
-        // Simulamos un error catastrófico al cargar la malla
+        // Simulate catastrophic mesh failure
         loader.loadMeshFunc = async () => { throw new Error('Simulated Network Mesh Load Error'); };
 
         const robot = loader.parse(urdf);
         
-        // Esperamos que se resuelva la microtarea del catch
+        // Await microtasks execution
         await new Promise(resolve => setTimeout(resolve, 10));
 
-        // El robot sigue vivo y conserva su topología
+        // Robot must survive retaining structural integrity
         expect(robot.robotName).toBe('ResilientRobot');
         expect(Object.keys(robot.links)).toHaveLength(1);
         expect(consoleSpy).toHaveBeenCalledWith('URDFLoader: Error loading mesh.', expect.any(Error));
@@ -304,7 +315,7 @@ describe('Fase 3: Resiliencia a Fallos y Tolerancia de Mallas', () => {
         consoleSpy.mockRestore();
     });
 
-    it('debería ejecutar loadMeshFunc un número de veces exacto al número de mallas', async () => {
+    it('should fire loadMeshFunc exactly matching the total mesh count', async () => {
         const loader = new URDFLoader();
         let calls = 0;
         loader.loadMeshFunc = async () => { calls++; return new Mesh(); };
@@ -328,9 +339,9 @@ describe('Fase 3: Resiliencia a Fallos y Tolerancia de Mallas', () => {
 });
 
 // ==========================================
-// FASE 4: INTEGRACIÓN A GRAN ESCALA
+// PHASE 4: LARGE SCALE INTEGRATION
 // ==========================================
-describe('Fase 4: Pruebas de Estrés e Integración a Gran Escala', () => {
+describe('Phase 4: Stress Tests and Large Scale Parsing', () => {
     let fetchSpy: any;
 
     beforeEach(() => {
@@ -341,7 +352,7 @@ describe('Fase 4: Pruebas de Estrés e Integración a Gran Escala', () => {
         vi.restoreAllMocks();
     });
 
-    // Utilidad para simular cargas extremas sin pesados archivos físicos
+    /** Generates dynamic large URDF strings for load-stressing the parser */
     const generateLargeURDF = (name: string, linkCount: number) => {
         let xml = `<robot name="${name}">\n<link name="link_0"/>\n`;
         for(let i = 1; i < linkCount; i++) {
@@ -352,7 +363,7 @@ describe('Fase 4: Pruebas de Estrés e Integración a Gran Escala', () => {
         return xml;
     };
 
-    it('debería procesar estructuralmente un modelo masivo como NASA Robonaut (128 links, 127 joints)', async () => {
+    it('should process a massive model structure like NASA Robonaut (128 links, 127 joints) without overflowing stack', async () => {
         fetchSpy.mockResolvedValue({
             ok: true, text: async () => generateLargeURDF('Robonaut_Mock', 128)
         } as Response);
@@ -365,7 +376,7 @@ describe('Fase 4: Pruebas de Estrés e Integración a Gran Escala', () => {
         expect(Object.keys(robot.joints)).toHaveLength(127);
     });
 
-    it('debería procesar estructuralmente un modelo como NASA Valkyrie (69 links, 68 joints)', async () => {
+    it('should structurally parse a medium load model like NASA Valkyrie (69 links, 68 joints)', async () => {
         fetchSpy.mockResolvedValue({
             ok: true, text: async () => generateLargeURDF('Valkyrie_Mock', 69)
         } as Response);
@@ -378,7 +389,7 @@ describe('Fase 4: Pruebas de Estrés e Integración a Gran Escala', () => {
         expect(Object.keys(robot.joints)).toHaveLength(68);
     });
 
-    it('debería resolver correctamente un robot multipaquete complejo (ROS Industrial)', async () => {
+    it('should correctly resolve a complex multi-package ROS Industrial robot string', async () => {
         const multiPkgUrdf = `
             <robot name="MultiPkg">
                 <link name="Tool">
@@ -401,7 +412,7 @@ describe('Fase 4: Pruebas de Estrés e Integración a Gran Escala', () => {
         loader.loadMeshFunc = async (url) => { loadedUrls.push(url); return new Mesh(); };
 
         await loader.loadAsync('https://mock.com/multipkg.urdf');
-        await new Promise(resolve => setTimeout(resolve, 10)); // Vaciar event loop de promesas
+        await new Promise(resolve => setTimeout(resolve, 10));
 
         expect(loadedUrls).toContain('https://ros-industrial.org/pkgA/mesh1.stl');
         expect(loadedUrls).toContain('https://ros-industrial.org/pkgB/mesh2.stl');

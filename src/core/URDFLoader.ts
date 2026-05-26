@@ -4,15 +4,28 @@ import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
 
 import { URDFRobot, URDFJoint, URDFLink, URDFCollider, URDFVisual, URDFMimicJoint, URDFBase, JointType, retainMeshResources } from './URDFClasses';
 
+/** Signature for a custom mesh loading function replacing the default implementation. */
 export type MeshLoadFunc = (path: string, manager: THREE.LoadingManager) => Promise<THREE.Object3D | null>;
+
+/** Configures how `package://` URLs are resolved within the URDF loader. */
 export type PackagesConfig = string | Record<string, string> | ((targetPkg: string) => string);
 
+/**
+ * Main parser and loader class for URDF (Unified Robot Description Format) files.
+ * Extends THREE.Loader integrating seamlessly with the Three.js ecosystem.
+ */
 export class URDFLoader extends THREE.Loader {
+    /** Injected handler for loading 3D mesh files like STL or DAE. */
     public loadMeshFunc: MeshLoadFunc;
+    /** If true, parses `<visual>` blocks and generates 3D geometries. */
     public parseVisual: boolean = true;
+    /** If true, parses `<collision>` blocks and generates geometric colliders. */
     public parseCollision: boolean = false;
+    /** Package resolution definition map. */
     public packages: PackagesConfig = '';
+    /** Explicit base path replacing standard URL extraction. */
     public workingPath: string = '';
+    /** Custom standard HTTP request parameters. */
     public fetchOptions: RequestInit = {};
 
     constructor(manager?: THREE.LoadingManager) {
@@ -56,6 +69,12 @@ export class URDFLoader extends THREE.Loader {
         });
     }
 
+    /**
+     * Parses the raw XML string or DOM into a standardized URDFRobot structure.
+     * * @param content - XML String or Document/Element to parse.
+     * @param workingPath - Directory base to resolve dependencies.
+     * @returns Fully configured URDFRobot.
+     */
     public parse(content: string | Document | Element, workingPath: string = this.workingPath): URDFRobot {
         const linkMap: Record<string, URDFLink> = {};
         const jointMap: Record<string, URDFJoint> = {};
@@ -82,7 +101,7 @@ export class URDFLoader extends THREE.Loader {
 
         const processTuple = (val: string | null): [number, number, number] => {
             if (!val) return [0, 0, 0];
-            const parsed = val.trim().split(/\s+/g).map(num => parseFloat(num));
+            const parsed = val.trim().split(/\s+/g).map(parseFloat);
             return [parsed[0] || 0, parsed[1] || 0, parsed[2] || 0];
         };
 
@@ -101,7 +120,7 @@ export class URDFLoader extends THREE.Loader {
             Array.from(node.children).forEach(n => {
                 const type = n.nodeName.toLowerCase();
                 if (type === 'color') {
-                    const rgba = n.getAttribute('rgba')?.split(/\s/g).map(v => parseFloat(v)) || [1, 1, 1, 1];
+                    const rgba = n.getAttribute('rgba')?.split(/\s/g).map(parseFloat) || [1, 1, 1, 1];
                     material.color.setRGB(rgba[0], rgba[1], rgba[2]);
                     material.opacity = rgba[3];
                     material.transparent = rgba[3] < 1;
@@ -123,12 +142,12 @@ export class URDFLoader extends THREE.Loader {
 
         const processLinkElement = (vn: Element, matMap: Record<string, THREE.Material> = {}): URDFBase => {
             const isCollisionNode = vn.nodeName.toLowerCase() === 'collision';
-            
             const group: URDFBase = isCollisionNode ? new URDFCollider() : new URDFVisual();
             group.urdfNode = vn;
 
             let material: THREE.Material = new THREE.MeshPhongMaterial();
             const materialNode = Array.from(vn.children).find(n => n.nodeName.toLowerCase() === 'material');
+            
             if (materialNode) {
                 const name = materialNode.getAttribute('name');
                 if (name && name in matMap) {
@@ -161,7 +180,7 @@ export class URDFLoader extends THREE.Loader {
                                         obj.position.set(0, 0, 0);
                                         obj.quaternion.identity();
                                         
-                                        // Retener recursos de mallas externas asíncronas
+                                        // Retain resources for async remote meshes
                                         obj.traverse(c => {
                                             if (c instanceof THREE.Mesh) retainMeshResources(c);
                                         });
@@ -377,6 +396,12 @@ export class URDFLoader extends THREE.Loader {
         return processRobot(robotNode);
     }
 
+    /**
+     * Default callback applied to fetch and parse external meshes (DAE/STL).
+     * * @param path - URL to load the mesh from.
+     * @param manager - Global Three.js LoadingManager context.
+     * @returns A promise resolving to the fully constructed Object3D.
+     */
     public async defaultMeshLoader(path: string, manager: THREE.LoadingManager): Promise<THREE.Object3D | null> {
         const ext = path.split('.').pop()?.toLowerCase();
 

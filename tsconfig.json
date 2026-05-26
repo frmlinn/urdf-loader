@@ -8,17 +8,18 @@
     "moduleResolution": "bundler",
 
     "rootDir": "./src",
-    "noEmit": false,
-    "declaration": true,
-    "declarationDir": "./dist",
-    "outDir": "./dist",
-    "sourceMap": true,
     
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "outDir": "./dist",
+    
+    "sourceMap": true,
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "test", "demo"]
+  "exclude": ["node_modules", "dist", "dist-demo", "test", "demo"]
 }

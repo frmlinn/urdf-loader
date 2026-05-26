@@ -6,13 +6,17 @@ import { URDFRobot, URDFJoint, releaseMeshResources, retainResource, releaseReso
 const tempVec2 = new THREE.Vector2();
 const emptyRaycast = () => {};
 
-// --- Variables Globales Cacheadas (O(0) Garbage Collection) ---
+// --- Globally Cached Variables (O(0) Garbage Collection) ---
 const _tempBox = new THREE.Box3();
 const _globalBox = new THREE.Box3();
 const _tempGlobalSphere = new THREE.Sphere();
 const _tempVec3 = new THREE.Vector3();
 const _tempVec3Scale = new THREE.Vector3();
 
+/**
+ * Web Component to render and visualize URDF models within a Three.js scene.
+ * Encapsulates the renderer, camera, lights, and orbit controls.
+ */
 export class URDFViewer extends HTMLElement {
     public scene: THREE.Scene;
     public world: THREE.Object3D;
@@ -21,11 +25,14 @@ export class URDFViewer extends HTMLElement {
     public controls: OrbitControls;
     public directionalLight: THREE.DirectionalLight;
     public ambientLight: THREE.HemisphereLight;
+    /** Transparent plane acting as a shadow catcher floor. */
     public plane: THREE.Mesh;
 
+    /** The loaded URDF robot instance. */
     public robot: URDFRobot | null = null;
     public loader: URDFLoader;
 
+    /** Optional custom hook to bypass default mesh loading behavior. */
     public loadMeshFunc?: (path: string, manager: THREE.LoadingManager) => Promise<THREE.Object3D | null>;
 
     private _collisionMaterial: THREE.MeshPhongMaterial;
@@ -36,12 +43,13 @@ export class URDFViewer extends HTMLElement {
     private _requestId: number = 0;
     private resizeObserver: ResizeObserver;
 
-    // --- Estado Interno de Sombras (Histéresis y Deferred Update) ---
+    // --- Shadow System State (Hysteresis and Deferred Updates) ---
     private _shadowsNeedUpdate: boolean = false;
     private _currentShadowCenter: THREE.Vector3 = new THREE.Vector3();
     private _currentShadowRadius: number = 0;
 
-    static get observedAttributes() {
+    /** Registers attributes to trigger the `attributeChangedCallback`. */
+    static get observedAttributes(): string[] {
         return [
             'package', 'urdf', 'up', 'display-shadow', 
             'ambient-color', 'ignore-limits', 'show-collision',
@@ -49,7 +57,7 @@ export class URDFViewer extends HTMLElement {
         ];
     }
 
-    // --- Atributos Reactivos ---
+    // --- Reactive Attributes ---
 
     get package(): string { return this.getAttribute('package') || ''; }
     set package(val: string) { this.setAttribute('package', val); }
@@ -78,6 +86,7 @@ export class URDFViewer extends HTMLElement {
     get noAutoRecenter(): boolean { return this.hasAttribute('no-auto-recenter'); }
     set noAutoRecenter(val: boolean) { val ? this.setAttribute('no-auto-recenter', '') : this.removeAttribute('no-auto-recenter'); }
 
+    /** Returns a dictionary of current joint values. Supports both scalar and vector states. */
     get jointValues(): Record<string, number | number[]> {
         const values: Record<string, number | number[]> = {};
         if (this.robot) {
@@ -90,10 +99,9 @@ export class URDFViewer extends HTMLElement {
     }
     set jointValues(val: Record<string, number | number[]>) { this.setJointValues(val); }
 
+    /** Alias for jointValues. */
     get angles(): Record<string, number | number[]> { return this.jointValues; }
     set angles(v: Record<string, number | number[]>) { this.jointValues = v; }
-
-    // --- Constructor ---
 
     constructor() {
         super();
@@ -106,12 +114,12 @@ export class URDFViewer extends HTMLElement {
         `;
         this.shadowRoot!.appendChild(style);
 
-        // Scene
+        // Scene configuration
         this.scene = new THREE.Scene();
         this.world = new THREE.Object3D();
         this.scene.add(this.world);
 
-        // Lights
+        // Lights configuration
         this.ambientLight = new THREE.HemisphereLight(this.ambientColor, '#000000', 0.5);
         this.ambientLight.groundColor.lerp(this.ambientLight.color, 0.5);
         this.ambientLight.position.set(0, 1, 0);
@@ -126,7 +134,7 @@ export class URDFViewer extends HTMLElement {
         this.scene.add(this.directionalLight);
         this.scene.add(this.directionalLight.target);
 
-        // Renderer
+        // Renderer configuration
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         this.renderer.setClearColor(0xffffff, 0);
         this.renderer.shadowMap.enabled = true;
@@ -134,7 +142,7 @@ export class URDFViewer extends HTMLElement {
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
         this.shadowRoot!.appendChild(this.renderer.domElement);
 
-        // Camera
+        // Camera configuration
         this.camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
         this.camera.position.set(2, 2, 2);
 
@@ -149,7 +157,7 @@ export class URDFViewer extends HTMLElement {
         this.plane.scale.set(10, 10, 10);
         this.scene.add(this.plane);
 
-        // Controls
+        // OrbitControls configuration
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.rotateSpeed = 2.0;
         this.controls.zoomSpeed = 5;
@@ -158,7 +166,7 @@ export class URDFViewer extends HTMLElement {
         this.controls.enableDamping = false;
         this.controls.maxDistance = 50;
         this.controls.minDistance = 0.25;
-        // Desacoplamiento Real O(1)
+        // True O(1) decoupling, forces a redraw flag when view changes
         this.controls.addEventListener('change', () => this.redraw());
 
         // Collider Material Setup
@@ -178,15 +186,15 @@ export class URDFViewer extends HTMLElement {
         this.resizeObserver = new ResizeObserver(() => this.updateSize());
     }
 
-    // --- Ciclo de Vida ---
+    // --- Web Component Lifecycle ---
 
-    connectedCallback() {
+    connectedCallback(): void {
         this.resizeObserver.observe(this);
         this.updateSize();
         this._renderLoop();
     }
 
-    disconnectedCallback() {
+    disconnectedCallback(): void {
         this.resizeObserver.disconnect();
         cancelAnimationFrame(this._renderLoopId);
         if (this.robot) {
@@ -198,7 +206,7 @@ export class URDFViewer extends HTMLElement {
         this.renderer.dispose();
     }
 
-    attributeChangedCallback(attr: string, oldval: string, newval: string) {
+    attributeChangedCallback(attr: string, oldval: string, newval: string): void {
         if (oldval === newval) return;
 
         this._updateCollisionVisibility();
@@ -230,9 +238,10 @@ export class URDFViewer extends HTMLElement {
         }
     }
 
-    // --- API Pública ---
+    // --- Public API ---
 
-    public updateSize() {
+    /** Synchronizes the WebGL renderer size with the component's DOM boundaries. */
+    public updateSize(): void {
         const w = this.clientWidth;
         const h = this.clientHeight;
         if (w === 0 || h === 0) return;
@@ -249,15 +258,17 @@ export class URDFViewer extends HTMLElement {
         this.camera.updateProjectionMatrix();
     }
 
-    public redraw() {
+    /** Flags the scene to be re-rendered on the next animation frame. */
+    public redraw(): void {
         this._dirty = true;
     }
 
-    public recenter() {
+    /** Centers the camera controls and shadow frustum onto the robot's current bounding sphere. */
+    public recenter(): void {
         if (!this.robot) return;
         this.world.updateMatrixWorld(true);
 
-        // Forzamos actualización de plano de suelo y sombras sin histéresis
+        // Force ground plane and shadow update bypassing hysteresis
         this._updateShadowBounds(true);
 
         if (!_tempGlobalSphere.isEmpty()) {
@@ -266,10 +277,15 @@ export class URDFViewer extends HTMLElement {
         this.redraw();
     }
 
-    public setJointValue(jointName: string, ...values: (number | null)[]) {
+    /**
+     * Updates the angle/position of a specific joint.
+     * @param jointName - The string ID of the target joint.
+     * @param values - Joint values (e.g., angle in radians).
+     */
+    public setJointValue(jointName: string, ...values: (number | null)[]): void {
         if (!this.robot || !this.robot.joints[jointName]) return;
 
-        // Inyección Reactiva (Dirty Flag)
+        // Reactive Injection (Dirty Flag)
         if (this.robot.joints[jointName].setJointValue(...values)) {
             this._shadowsNeedUpdate = true; // Deferred Update
             this.redraw();
@@ -277,7 +293,11 @@ export class URDFViewer extends HTMLElement {
         }
     }
 
-    public setJointValues(values: Record<string, number | (number | null)[]>) {
+    /**
+     * Updates multiple joints simultaneously.
+     * @param values - A mapping of joint names to their target numeric state.
+     */
+    public setJointValues(values: Record<string, number | (number | null)[]>): void {
         let didChange = false;
         for (const name in values) {
             const val = values[name];
@@ -293,14 +313,15 @@ export class URDFViewer extends HTMLElement {
         }
     }
 
-    // --- Lógica Interna ---
+    // --- Internal Logic ---
 
+    /** Centralized requestAnimationFrame loop. Uses deferred evaluations. */
     private _renderLoop = () => {
         if (this.isConnected) {
-            // Evaluamos la cinemática diferida una sola vez justo antes del render
+            // Evaluate deferred kinematics once right before rendering
             if (this._shadowsNeedUpdate) {
                 this.world.updateMatrixWorld(true);
-                this._updateShadowBounds(); // Actualiza plano y (si procede) cámara de sombras
+                this._updateShadowBounds(); // Updates plane and shadow camera if applicable
                 this._shadowsNeedUpdate = false;
             }
 
@@ -313,7 +334,12 @@ export class URDFViewer extends HTMLElement {
         this._renderLoopId = requestAnimationFrame(this._renderLoop);
     }
 
-    // Heurística de AABB Híbrido O(M)
+    /**
+     * Hybrid AABB heuristic (O(M) complexity) to wrap the scene bounds.
+     * Guarantees meshes are tightly constrained at the bottom (minY).
+     * * @param targetSphere - Output sphere to store bounding geometry.
+     * @returns The lowest Y coordinate in world space.
+     */
     private _calculateSceneBounds(targetSphere: THREE.Sphere): number {
         _globalBox.makeEmpty();
         let minY = Infinity;
@@ -326,13 +352,13 @@ export class URDFViewer extends HTMLElement {
         for (let i = 0; i < this.robot.flatVisualMeshes.length; i++) {
             const mesh = this.robot.flatVisualMeshes[i];
             
-            // 1. Box calculation (Para inflar _globalBox globalmente)
+            // 1. Box calculation (Inflates global AABB)
             const localBox = mesh.geometry.boundingBox!; 
             _tempBox.copy(localBox).applyMatrix4(mesh.matrixWorld);
             _globalBox.union(_tempBox);
             const boxMinY = _tempBox.min.y;
 
-            // 2. Sphere calculation (Extrae radio escalado globalmente)
+            // 2. Sphere calculation (Extracts globally scaled radius)
             const localSphere = mesh.geometry.boundingSphere!;
             _tempVec3.copy(localSphere.center).applyMatrix4(mesh.matrixWorld);
             
@@ -340,48 +366,45 @@ export class URDFViewer extends HTMLElement {
             const maxScale = Math.max(Math.abs(_tempVec3Scale.x), Math.abs(_tempVec3Scale.y), Math.abs(_tempVec3Scale.z));
             const sphereMinY = _tempVec3.y - (localSphere.radius * maxScale);
 
-            // 3. Hybrid Heuristic: La malla real NUNCA puede ser más baja que 
-            // el mínimo de su Caja NI el mínimo de su Esfera envolvente.
-            // Seleccionamos el mínimo más alto (es decir, el límite inferior más ajustado y realista)
+            // 3. Hybrid Heuristic: A real mesh can NEVER be lower than 
+            // the min of its Box NOR the min of its Bounding Sphere.
+            // Select the tightest (highest) lower bound.
             const tightMinY = Math.max(boxMinY, sphereMinY);
 
             if (tightMinY < minY) minY = tightMinY;
         }
 
-        // Extraemos la esfera perfecta para el frustum ancho de la cámara
+        // Extract perfect sphere for the camera's wide frustum
         _globalBox.getBoundingSphere(targetSphere);
 
         return minY === Infinity ? 0 : minY;
     }
 
-    private _updateShadowBounds(force: boolean = false) {
+    /** Computes dynamic shadow camera projections and shadow plane offsets. */
+    private _updateShadowBounds(force: boolean = false): void {
         if (!this.robot) return;
 
         const currentMinY = this._calculateSceneBounds(_tempGlobalSphere);
         if (_tempGlobalSphere.isEmpty()) return;
 
-        // --- CORRECCIÓN ERROR 1: Actualización Constante ---
-        // Sincronizamos el suelo en tiempo real, totalmente desacoplado 
-        // de la histéresis de sombras. (Elimina atravesamientos)
+        // Synchronize floor plane in real-time, decoupled from shadow hysteresis.
         this.plane.position.y = currentMinY - 1e-3;
 
-        // Si las sombras están apagadas, no necesitamos recalcular cámara
+        // Skip shadow camera updates if disabled
         if (!this.displayShadow) return;
 
-        // --- Histéresis de Sombras ---
+        // --- Shadow Hysteresis ---
         const center = _tempGlobalSphere.center;
         const radius = _tempGlobalSphere.radius;
-        const targetRadius = radius * 1.15; // 15% holgura
+        const targetRadius = radius * 1.15; // 15% slack
         
         if (!force && this._currentShadowRadius > 0) {
             const dist = this._currentShadowCenter.distanceTo(center);
-            // Si la nueva envolvente cabe sobradamente en nuestro frustum actual, ignoramos
-            if (dist + radius < this._currentShadowRadius) {
-                return; 
-            }
+            // Ignore if the new bounds comfortably fit into our current frustum
+            if (dist + radius < this._currentShadowRadius) return; 
         }
 
-        // Actualizamos caché interno de sombras
+        // Update shadow cache
         this._currentShadowCenter.copy(center);
         this._currentShadowRadius = targetRadius;
 
@@ -402,7 +425,8 @@ export class URDFViewer extends HTMLElement {
         cam.updateProjectionMatrix();
     }
 
-    private _scheduleLoad() {
+    /** Debounces load requests to prevent race conditions during rapid attribute updates. */
+    private _scheduleLoad(): void {
         const loadStr = `${this.package}|${this.urdf}`;
         if (this._prevload === loadStr) return;
         this._prevload = loadStr;
@@ -424,7 +448,8 @@ export class URDFViewer extends HTMLElement {
         });
     }
 
-    private _loadUrdf(pkg: string, urdf: string) {
+    /** Internally fetches and processes the raw URDF descriptor. */
+    private _loadUrdf(pkg: string, urdf: string): void {
         this.dispatchEvent(new CustomEvent('urdf-change', { bubbles: true, cancelable: true, composed: true }));
 
         if (!urdf) return;
@@ -517,7 +542,8 @@ export class URDFViewer extends HTMLElement {
         });
     }
 
-    private _updateCollisionVisibility() {
+    /** Toggles raycast targets and mesh visibility based on `showCollision` flag. */
+    private _updateCollisionVisibility(): void {
         if (!this.robot) return;
 
         const showCollision = this.showCollision;
@@ -547,7 +573,8 @@ export class URDFViewer extends HTMLElement {
         });
     }
 
-    private _setUp(upAxis: string) {
+    /** Applies base Euler rotations to match URDF environment conventions. */
+    private _setUp(upAxis: string): void {
         let axis = upAxis ? upAxis.toUpperCase() : '+Z';
         const sign = axis.replace(/[^-+]/g, '')[0] || '+';
         const char = axis.replace(/[^XYZ]/gi, '')[0] || 'Z';
@@ -564,7 +591,8 @@ export class URDFViewer extends HTMLElement {
         this.recenter();
     }
 
-    private _setIgnoreLimits(ignore: boolean, dispatch: boolean = false) {
+    /** Overrides bounds and limits locally and triggers updates across all joints. */
+    private _setIgnoreLimits(ignore: boolean, dispatch: boolean = false): void {
         if (this.robot) {
             Object.values(this.robot.joints).forEach((joint: URDFJoint) => {
                 joint.ignoreLimits = ignore;

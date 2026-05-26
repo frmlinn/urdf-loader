@@ -1,24 +1,32 @@
 {
-  "name": "urdf-loader",
-  "version": "1.0.0",
+  "name": "@frmlinn/urdf-loader",
+  "version": "0.0.1",
   "description": "URDF Loader for THREE.js (TypeScript Edition)",
   "type": "module",
-  "main": "./dist/urdf-loaders.umd.cjs",
-  "module": "./dist/urdf-loaders.js",
+  "main": "./dist/urdf-loader.umd.cjs",
+  "module": "./dist/urdf-loadet.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/urdf-loaders.js",
-      "require": "./dist/urdf-loaders.umd.cjs",
+      "import": "./dist/urdf-loader.js",
+      "require": "./dist/urdf-loader.umd.cjs",
       "types": "./dist/index.d.ts"
     }
   },
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frmlinn/urdf-loader.git"
+  },
   "scripts": {
     "dev": "vite serve",
-    "build": "tsc && vite build",
+    "build": "vite build && tsc",
+    "build:demo": "cross-env BUILD_DEMO=true vite build",
     "test": "vitest run",
     "test:watch": "vitest",
     "bench": "vitest bench",

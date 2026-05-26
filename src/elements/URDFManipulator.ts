@@ -1,32 +1,42 @@
 import * as THREE from 'three';
 import { URDFViewer } from './URDFViewer';
-import { PointerURDFDragControls } from '../core/URDFDragControls';
+import { PointerURDFDragControls, isJoint } from '../core/URDFDragControls';
 import { URDFJoint } from '../core/URDFClasses';
 
+/**
+ * Web Component that extends URDFViewer to provide interactive manipulation 
+ * of the URDF joints via pointer drag controls.
+ */
 export class URDFManipulator extends URDFViewer {
+    /** Controller handling raycasting and pointer interactions. */
     public dragControls: PointerURDFDragControls;
+    /** Material applied to links when they are hovered or manipulated. */
     public highlightMaterial: THREE.MeshPhongMaterial;
 
-    // Usamos un WeakMap para almacenar de forma segura los materiales originales
-    // sin contaminar la clase THREE.Mesh con propiedades dinámicas (tipo "any").
+    /** * WeakMap to safely store original materials without polluting 
+     * THREE.Mesh instances with dynamic "any" properties. 
+     */
     private _originalMaterials: WeakMap<THREE.Mesh, THREE.Material | THREE.Material[]> = new WeakMap();
 
-    static get observedAttributes() {
+    /** Registers attributes to trigger the `attributeChangedCallback`. */
+    static get observedAttributes(): string[] {
         return ['highlight-color', 'disable-dragging', ...super.observedAttributes];
     }
 
-    // --- Atributos Reactivos Propios ---
+    // --- Reactive Attributes ---
 
+    /** Gets or sets whether joint dragging is disabled. */
     get disableDragging(): boolean { return this.hasAttribute('disable-dragging'); }
     set disableDragging(val: boolean) { val ? this.setAttribute('disable-dragging', 'true') : this.removeAttribute('disable-dragging'); }
 
+    /** Gets or sets the hex color used for highlighting hovered joints. */
     get highlightColor(): string { return this.getAttribute('highlight-color') || '#FFFFFF'; }
     set highlightColor(val: string) { val ? this.setAttribute('highlight-color', val) : this.removeAttribute('highlight-color'); }
 
     constructor() {
         super();
 
-        // Configuración del material de resaltado
+        // Highlight material configuration
         this.highlightMaterial = new THREE.MeshPhongMaterial({
             shininess: 10,
             color: this.highlightColor,
@@ -34,47 +44,11 @@ export class URDFManipulator extends URDFViewer {
             emissiveIntensity: 0.25,
         });
 
-        const isJoint = (j: any): j is URDFJoint => {
-            return j && j.isURDFJoint && j.jointType !== 'fixed';
-        };
-
-        // Función para resaltar la geometría del Link bajo una articulación
-        const highlightLinkGeometry = (m: URDFJoint, revert: boolean) => {
-            const traverse = (c: THREE.Object3D) => {
-                // Configurar o revertir el color de resaltado
-                if (c instanceof THREE.Mesh) {
-                    if (revert) {
-                        if (this._originalMaterials.has(c)) {
-                            c.material = this._originalMaterials.get(c)!;
-                            this._originalMaterials.delete(c);
-                        }
-                    } else {
-                        if (!this._originalMaterials.has(c)) {
-                            this._originalMaterials.set(c, c.material);
-                            c.material = this.highlightMaterial;
-                        }
-                    }
-                }
-
-                // Profundizar en los hijos y detenerse si el siguiente hijo es otra articulación
-                if (c === m || !isJoint(c)) {
-                    for (let i = 0; i < c.children.length; i++) {
-                        const child = c.children[i];
-                        if (!('isURDFCollider' in child)) {
-                            traverse(child);
-                        }
-                    }
-                }
-            };
-
-            traverse(m);
-        };
-
-        // Instanciar los controles interactivos de arrastre
+        // Instantiate interactive drag controls
         const el = this.renderer.domElement;
         this.dragControls = new PointerURDFDragControls(this.scene, this.camera, el);
 
-        // Mapeo de eventos del DragControls a la vista y despacho de CustomEvents
+        // Map drag control events to view updates and CustomEvents
         this.dragControls.onDragStart = (joint: URDFJoint) => {
             this.dispatchEvent(new CustomEvent('manipulate-start', { bubbles: true, cancelable: true, composed: true, detail: joint.name }));
             this.controls.enabled = false;
@@ -92,24 +66,24 @@ export class URDFManipulator extends URDFViewer {
         };
 
         this.dragControls.onHover = (joint: URDFJoint) => {
-            highlightLinkGeometry(joint, false);
+            this._highlightLinkGeometry(joint, false);
             this.dispatchEvent(new CustomEvent('joint-mouseover', { bubbles: true, cancelable: true, composed: true, detail: joint.name }));
             this.redraw();
         };
 
         this.dragControls.onUnhover = (joint: URDFJoint) => {
-            highlightLinkGeometry(joint, true);
+            this._highlightLinkGeometry(joint, true);
             this.dispatchEvent(new CustomEvent('joint-mouseout', { bubbles: true, cancelable: true, composed: true, detail: joint.name }));
             this.redraw();
         };
     }
 
-    override disconnectedCallback() {
+    override disconnectedCallback(): void {
         super.disconnectedCallback();
         this.dragControls.dispose();
     }
 
-    override attributeChangedCallback(attr: string, oldval: string, newval: string) {
+    override attributeChangedCallback(attr: string, oldval: string, newval: string): void {
         super.attributeChangedCallback(attr, oldval, newval);
 
         switch (attr) {
@@ -122,7 +96,43 @@ export class URDFManipulator extends URDFViewer {
                 break;
         }
     }
+    
+    /**
+     * Traverses and highlights (or un-highlights) the geometry of the link controlled by a joint.
+     * Stops traversal if another joint is encountered to prevent highlighting entire sub-trees.
+     * * @param m - The target URDF joint.
+     * @param revert - If true, restores original materials. If false, applies highlight material.
+     */
+    private _highlightLinkGeometry(m: URDFJoint, revert: boolean): void {
+        const traverse = (c: THREE.Object3D) => {
+            if (c instanceof THREE.Mesh) {
+                if (revert) {
+                    if (this._originalMaterials.has(c)) {
+                        c.material = this._originalMaterials.get(c)!;
+                        this._originalMaterials.delete(c);
+                    }
+                } else {
+                    if (!this._originalMaterials.has(c)) {
+                        this._originalMaterials.set(c, c.material);
+                        c.material = this.highlightMaterial;
+                    }
+                }
+            }
+
+            // Drill down into children, stopping if the next child is another joint
+            if (c === m || !isJoint(c)) {
+                for (let i = 0; i < c.children.length; i++) {
+                    const child = c.children[i];
+                    if (!('isURDFCollider' in child)) {
+                        traverse(child);
+                    }
+                }
+            }
+        };
+
+        traverse(m);
+    }
 }
 
-// Registrar el nuevo Web Component
+// Register the new Web Component
 customElements.define('urdf-manipulator', URDFManipulator);

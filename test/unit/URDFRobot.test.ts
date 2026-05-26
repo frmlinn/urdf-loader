@@ -2,8 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { URDFLoader } from '../../src/core/URDFLoader';
 import { URDFMimicJoint } from '../../src/core/URDFClasses';
 
+/**
+ * Unit tests for the URDFRobot class.
+ * Ensures proper joint evaluation, limit parsing, inertial data extraction,
+ * and structural cloning of the robot's topological graph.
+ */
 describe('URDFRobot', () => {
-    it('debería establecer correctamente todos los ángulos de las articulaciones con setJointValues', () => {
+    it('should correctly set all joint angles using setJointValues', () => {
         const loader = new URDFLoader();
         const robot = loader.parse(`
             <robot name="TEST">
@@ -18,7 +23,7 @@ describe('URDFRobot', () => {
         expect(robot.joints['JOINT2'].angle).toEqual(2);
     });
 
-    it('debería parsear los esfuerzos y velocidades de las articulaciones', () => {
+    it('should accurately parse joint efforts and velocities', () => {
         const loader = new URDFLoader();
         const robot = loader.parse(`
             <robot name="TEST">
@@ -42,7 +47,7 @@ describe('URDFRobot', () => {
         expect(robot.joints['JOINT2'].limit.velocity).toEqual(0);
     });
 
-    it('debería parsear correctamente la data inercial completa', () => {
+    it('should correctly parse full inertial data and apply fallbacks', () => {
         const loader = new URDFLoader();
         const robot = loader.parse(`
             <robot name="TEST">
@@ -66,19 +71,19 @@ describe('URDFRobot', () => {
         expect(robot.links['LINK1'].inertial.inertia.iyy).toEqual(0.00443333156);
         expect(robot.links['LINK1'].inertial.inertia.izz).toEqual(0.0072);
         
-        // Comprobación de tensores cruzados (añadido)
+        // Cross-tensor verification
         expect(robot.links['LINK1'].inertial.inertia.ixy).toEqual(0);
         expect(robot.links['LINK1'].inertial.inertia.ixz).toEqual(0);
         expect(robot.links['LINK1'].inertial.inertia.iyz).toEqual(0);
         
-        // El link 2 no tiene tag inertial, debe tener TODOS los valores por defecto (añadido rpy y ixx)
+        // Link 2 lacks the inertial tag, must default to zero vectors/matrices
         expect(robot.links['LINK2'].inertial.mass).toEqual(0);
         expect(robot.links['LINK2'].inertial.origin.xyz).toEqual([0, 0, 0]);
         expect(robot.links['LINK2'].inertial.origin.rpy).toEqual([0, 0, 0]);
         expect(robot.links['LINK2'].inertial.inertia.ixx).toEqual(0);
     });
 
-    it('debería registrar el nombre de los nodos al iterar la jerarquía', () => {
+    it('should register all node names when traversing the hierarchy', () => {
         const loader = new URDFLoader();
         const res = loader.parse(`
             <robot name="TEST">
@@ -92,7 +97,7 @@ describe('URDFRobot', () => {
         expect(names).toEqual(['LINK1', 'JOINT', 'LINK2']);
     });
 
-    it('debería clonar los diccionarios de links y joints correctamente', () => {
+    it('should clone link and joint dictionaries accurately', () => {
         const loader = new URDFLoader();
         const res = loader.parse(`
             <robot name="TEST">
@@ -109,7 +114,7 @@ describe('URDFRobot', () => {
         expect(Object.keys(res.frames)).toEqual(['LINK1', 'LINK2', 'JOINT']);
     });
 
-    it('debería incluir múltiples colisiones y visuales en el diccionario de nombres de frames', () => {
+    it('should include multiple colliders and visuals in the frame dictionary', () => {
         const loader = new URDFLoader();
         loader.parseCollision = true;
         const res = loader.parse(`
@@ -137,7 +142,7 @@ describe('URDFRobot', () => {
         ].sort());
     });
 
-    it('debería clonar los datos de las articulaciones mímicas sin referenciar al modelo original', () => {
+    it('should clone mimic joints data without holding references to the original model', () => {
         const loader = new URDFLoader();
         const res = loader.parse(`
             <robot name="TEST">
@@ -161,7 +166,7 @@ describe('URDFRobot', () => {
         expect(jointA.mimicJoints.length).toEqual(1);
         expect((jointA.mimicJoints[0] as URDFMimicJoint).name).toEqual('B');
 
-        // Las referencias no deben apuntar a la instancia del robot viejo
+        // References must point to the new instantiated cloned tree, not the old one
         expect(jointA.mimicJoints[0]).not.toBe(res.joints['A'].mimicJoints[0]);
     });
 });
