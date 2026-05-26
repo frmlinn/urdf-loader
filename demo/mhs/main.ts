@@ -13,7 +13,18 @@ viewer.loadMeshFunc = async (path: string, manager: THREE.LoadingManager) => {
     return new Promise((resolve, reject) => {
         new GLTFLoader(manager).load(
             path,
-            (gltf) => resolve(gltf.scene),
+            (gltf) => {
+                // SOLUCIÓN: Recorremos la jerarquía del GLTF una única vez al cargar
+                // para habilitar las sombras en todas las mallas internas.
+                gltf.scene.traverse((node) => {
+                    if (node instanceof THREE.Mesh) {
+                        node.castShadow = true;
+                        node.receiveShadow = true;
+                    }
+                });
+                
+                resolve(gltf.scene);
+            },
             undefined,
             (err: unknown) => {
                 const msg = err instanceof Error ? err.message : String(err);
