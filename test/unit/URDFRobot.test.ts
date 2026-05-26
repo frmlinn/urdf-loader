@@ -3,7 +3,7 @@ import { URDFLoader } from '../../src/core/URDFLoader';
 import { URDFMimicJoint } from '../../src/core/URDFClasses';
 
 describe('URDFRobot', () => {
-    it('debería establecer correctamente todos los ángulos de las articulaciones', () => {
+    it('debería establecer correctamente todos los ángulos de las articulaciones con setJointValues', () => {
         const loader = new URDFLoader();
         const robot = loader.parse(`
             <robot name="TEST">
@@ -42,7 +42,7 @@ describe('URDFRobot', () => {
         expect(robot.joints['JOINT2'].limit.velocity).toEqual(0);
     });
 
-    it('debería parsear correctamente la data inercial', () => {
+    it('debería parsear correctamente la data inercial completa', () => {
         const loader = new URDFLoader();
         const robot = loader.parse(`
             <robot name="TEST">
@@ -66,12 +66,19 @@ describe('URDFRobot', () => {
         expect(robot.links['LINK1'].inertial.inertia.iyy).toEqual(0.00443333156);
         expect(robot.links['LINK1'].inertial.inertia.izz).toEqual(0.0072);
         
-        // El link 2 no tiene tag inertial, debe tener los valores por defecto
+        // Comprobación de tensores cruzados (añadido)
+        expect(robot.links['LINK1'].inertial.inertia.ixy).toEqual(0);
+        expect(robot.links['LINK1'].inertial.inertia.ixz).toEqual(0);
+        expect(robot.links['LINK1'].inertial.inertia.iyz).toEqual(0);
+        
+        // El link 2 no tiene tag inertial, debe tener TODOS los valores por defecto (añadido rpy y ixx)
         expect(robot.links['LINK2'].inertial.mass).toEqual(0);
         expect(robot.links['LINK2'].inertial.origin.xyz).toEqual([0, 0, 0]);
+        expect(robot.links['LINK2'].inertial.origin.rpy).toEqual([0, 0, 0]);
+        expect(robot.links['LINK2'].inertial.inertia.ixx).toEqual(0);
     });
 
-    it('debería registrar el nombre de los nodos (traverse name map)', () => {
+    it('debería registrar el nombre de los nodos al iterar la jerarquía', () => {
         const loader = new URDFLoader();
         const res = loader.parse(`
             <robot name="TEST">
@@ -102,7 +109,7 @@ describe('URDFRobot', () => {
         expect(Object.keys(res.frames)).toEqual(['LINK1', 'LINK2', 'JOINT']);
     });
 
-    it('debería incluir colisiones y visuales en el diccionario de nombres de frames', () => {
+    it('debería incluir múltiples colisiones y visuales en el diccionario de nombres de frames', () => {
         const loader = new URDFLoader();
         loader.parseCollision = true;
         const res = loader.parse(`
@@ -111,15 +118,22 @@ describe('URDFRobot', () => {
                     <visual name="BOX1_VISUAL"><box size="1 1 1"/></visual>
                     <collision name="BOX1_COLLISION"><box size="1 1 1"/></collision>
                 </link>
-                <link name="LINK2"/>
+                <link name="LINK2">
+                    <visual name="BOX2_VISUAL"><box size="1 1 1"/></visual>
+                    <collision name="BOX2_COLLISION"><box size="1 1 1"/></collision>
+                </link>
                 <joint name="JOINT"><parent link="LINK1"/><child link="LINK2"/></joint>
             </robot>
         `).clone();
 
-        expect(Object.keys(res.visual)).toEqual(['BOX1_VISUAL']);
-        expect(Object.keys(res.colliders)).toEqual(['BOX1_COLLISION']);
+        expect(Object.keys(res.links)).toEqual(['LINK1', 'LINK2']);
+        expect(Object.keys(res.joints)).toEqual(['JOINT']);
+        expect(Object.keys(res.visual)).toEqual(['BOX1_VISUAL', 'BOX2_VISUAL']);
+        expect(Object.keys(res.colliders)).toEqual(['BOX1_COLLISION', 'BOX2_COLLISION']);
         expect(Object.keys(res.frames).sort()).toEqual([
-            'BOX1_COLLISION', 'BOX1_VISUAL', 'LINK1', 'LINK2', 'JOINT'
+            'BOX1_COLLISION', 'BOX2_COLLISION',
+            'BOX1_VISUAL', 'BOX2_VISUAL',
+            'LINK1', 'LINK2', 'JOINT'
         ].sort());
     });
 
@@ -138,7 +152,6 @@ describe('URDFRobot', () => {
 
         const cloned = res.clone();
         
-        // Casting explícito a URDFMimicJoint para acceder a sus propiedades
         const jointB = cloned.joints['B'] as URDFMimicJoint;
         expect(jointB.mimicJoint).toEqual('A');
         expect(jointB.multiplier).toEqual(23);
@@ -148,7 +161,7 @@ describe('URDFRobot', () => {
         expect(jointA.mimicJoints.length).toEqual(1);
         expect((jointA.mimicJoints[0] as URDFMimicJoint).name).toEqual('B');
 
-        // FUNDAMENTAL: Las referencias no deben apuntar a la instancia del robot viejo
+        // Las referencias no deben apuntar a la instancia del robot viejo
         expect(jointA.mimicJoints[0]).not.toBe(res.joints['A'].mimicJoints[0]);
     });
 });
