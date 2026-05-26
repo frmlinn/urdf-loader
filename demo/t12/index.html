@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>T12 ATHLETE - URDF Loader</title>
+    <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+    <div id="ui-panel" class="glass-panel">
+        <header>
+            <h2>NASA T12 ATHLETE</h2>
+            <p>Rendimiento Nativo (STL)</p>
+        </header>
+
+        <div class="toggles-container">
+            <label class="toggle-row">
+                <span class="toggle-label">Animación de paseo</span>
+                <input type="checkbox" id="toggle-anim" checked>
+                <div class="toggle-switch"></div>
+            </label>
+            <label class="toggle-row">
+                <span class="toggle-label">Ignorar Límites</span>
+                <input type="checkbox" id="toggle-limits">
+                <div class="toggle-switch"></div>
+            </label>
+            <label class="toggle-row">
+                <span class="toggle-label">Autocentrar Cámara</span>
+                <input type="checkbox" id="toggle-autocenter" checked>
+                <div class="toggle-switch"></div>
+            </label>
+        </div>
+    </div>
+    
+    <urdf-manipulator 
+        id="viewer"
+        urdf="/urdf/T12/urdf/T12.URDF"
+        package="/urdf"
+        up="+Z"
+        display-shadow 
+        ambient-color="#444444"
+        highlight-color="#ffbf00">
+    </urdf-manipulator>
+
+    <script type="module" src="./main.ts"></script>
+</body>
+</html>
