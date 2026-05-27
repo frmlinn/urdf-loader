@@ -1,5 +1,10 @@
 # urdf-loader
 
+[![CI Tests](https://github.com//urdf-loader/actions/workflows/ci-test.yml/badge.svg)](https://github.com/frmlinn/urdf-loader/actions/workflows/ci-test.yml)
+[![GitHub Pages Deploy](https://github.com/frmlinn/urdf-loader/actions/workflows/deploy.yml/badge.svg)](https://frmlinn.github.io/urdf-loader/)
+[![License](https://img.shields.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Language](https://img.shields.shields.io/badge/Language-TypeScript-blue.svg)](https://www.typescriptlang.org/)
+
 Library for loading, parsing, and visualizing URDF (Unified Robot Description Format) models in the browser using Three.js.
 
 > [!NOTE]
