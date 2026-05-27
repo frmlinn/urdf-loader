@@ -1,5 +1,6 @@
 {
   "name": "@frmlinn/urdf-loader",
+  "author": "Francisco Morales Carlin <frm.linn@gmail.com>",
   "version": "0.0.1",
   "description": "URDF Loader for THREE.js (TypeScript Edition)",
   "type": "module",
@@ -32,6 +33,20 @@
     "bench": "vitest bench",
     "lint": "eslint ."
   },
+  "bugs": {
+    "url": "https://github.com/frmlinn/urdf-loader/issues",
+    "email": "frm.linn@gmail.com"
+  },
+  "keywords": [
+    "typescript",
+    "threejs",
+    "graphics",
+    "ros",
+    "robotics",
+    "urdf",
+    "urdf-models",
+    "webcomponents"
+  ],
   "license": "Apache-2.0",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
