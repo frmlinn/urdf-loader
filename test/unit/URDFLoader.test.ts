@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Mesh, Object3D } from 'three';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
+import { Mesh, Object3D, Material } from 'three';
 import * as fs from 'fs';
 import * as path from 'path';
 import { URDFLoader } from '../../src/core/URDFLoader';
@@ -25,46 +25,57 @@ async function emptyLoadMeshFunc(): Promise<Object3D> {
  * * @param ra - The reference URDF node.
  * @param rb - The target URDF node to compare against.
  */
-function compareRobots(ra: any, rb: any): void {
-    if (ra.isURDFRobot) {
-        expect(Object.keys(ra.links).sort()).toEqual(Object.keys(rb.links).sort());
-        expect(Object.keys(ra.joints).sort()).toEqual(Object.keys(rb.joints).sort());
-        expect(Object.keys(ra.colliders).sort()).toEqual(Object.keys(rb.colliders).sort());
-        expect(Object.keys(ra.visual).sort()).toEqual(Object.keys(rb.visual).sort());
+function compareRobots(ra: unknown, rb: unknown): void {
+    type CompareNode = URDFRobot & URDFMimicJoint & {
+        isMesh?: boolean;
+        isURDFLink?: boolean;
+        isURDFRobot?: boolean;
+        isURDFJoint?: boolean;
+        isURDFCollider?: boolean;
+    };
+
+    const a = ra as CompareNode;
+    const b = rb as CompareNode;
+
+    if (a.isURDFRobot) {
+        expect(Object.keys(a.links).sort()).toEqual(Object.keys(b.links).sort());
+        expect(Object.keys(a.joints).sort()).toEqual(Object.keys(b.joints).sort());
+        expect(Object.keys(a.colliders).sort()).toEqual(Object.keys(b.colliders).sort());
+        expect(Object.keys(a.visual).sort()).toEqual(Object.keys(b.visual).sort());
     }
 
-    expect(ra.name).toEqual(rb.name);
-    expect(ra.type).toEqual(rb.type);
-    expect(ra.urdfName).toEqual(rb.urdfName);
+    expect(a.name).toEqual(b.name);
+    expect(a.type).toEqual(b.type);
+    expect(a.urdfName).toEqual(b.urdfName);
 
-    expect(ra.isMesh).toEqual(rb.isMesh);
-    expect(ra.isURDFLink).toEqual(rb.isURDFLink);
-    expect(ra.isURDFRobot).toEqual(rb.isURDFRobot);
-    expect(ra.isURDFJoint).toEqual(rb.isURDFJoint);
-    expect(ra.isURDFCollider).toEqual(rb.isURDFCollider);
+    expect(a.isMesh).toEqual(b.isMesh);
+    expect(a.isURDFLink).toEqual(b.isURDFLink);
+    expect(a.isURDFRobot).toEqual(b.isURDFRobot);
+    expect(a.isURDFJoint).toEqual(b.isURDFJoint);
+    expect(a.isURDFCollider).toEqual(b.isURDFCollider);
 
-    switch (ra.type) {
+    switch (a.type) {
         case 'URDFJoint':
         case 'URDFMimicJoint':
-            expect(ra.jointType).toEqual(rb.jointType);
-            expect(ra.axis).toEqual(rb.axis);
-            expect(ra.limit).toEqual(rb.limit);
-            expect(ra.ignoreLimits).toEqual(rb.ignoreLimits);
-            expect(ra.jointValue).toEqual(rb.jointValue);
-            expect(ra.origPosition).toEqual(rb.origPosition);
-            expect(ra.origQuaternion).toEqual(rb.origQuaternion);
-            expect(ra.mimicJoints.map((x: any) => x.urdfName)).toEqual(rb.mimicJoints.map((x: any) => x.urdfName));
+            expect(a.jointType).toEqual(b.jointType);
+            expect(a.axis).toEqual(b.axis);
+            expect(a.limit).toEqual(b.limit);
+            expect(a.ignoreLimits).toEqual(b.ignoreLimits);
+            expect(a.jointValue).toEqual(b.jointValue);
+            expect(a.origPosition).toEqual(b.origPosition);
+            expect(a.origQuaternion).toEqual(b.origQuaternion);
+            expect(a.mimicJoints.map((x: URDFMimicJoint) => x.urdfName)).toEqual(b.mimicJoints.map((x: URDFMimicJoint) => x.urdfName));
 
-            if (ra.type === 'URDFMimicJoint') {
-                expect(ra.mimicJoint).toEqual(rb.mimicJoint);
-                expect(ra.offset).toEqual(rb.offset);
-                expect(ra.multiplier).toEqual(rb.multiplier);
+            if (a.type === 'URDFMimicJoint') {
+                expect(a.mimicJoint).toEqual(b.mimicJoint);
+                expect(a.offset).toEqual(b.offset);
+                expect(a.multiplier).toEqual(b.multiplier);
             }
             break;
     }
 
-    for (let i = 0; i < ra.children.length; i++) {
-        compareRobots(ra.children[i], rb.children[i]);
+    for (let i = 0; i < a.children.length; i++) {
+        compareRobots(a.children[i], b.children[i]);
     }
 }
 
@@ -180,7 +191,7 @@ describe('Material Tag Parsing', () => {
             </robot>
         `);
         
-        const material = (res.children[0].children[0] as any).material;
+        const material = (res.children[0].children[0] as Mesh).material as Material & { transparent: boolean, depthWrite: boolean, opacity: number };
         expect(material.name).toEqual('Cyan');
         expect(material.transparent).toEqual(true);
         expect(material.depthWrite).toEqual(false);
@@ -237,7 +248,7 @@ describe('Full Local File Parsing', () => {
 // PHASE 1 & 2: NETWORK CYCLE AND API BOUNDARIES
 // ==========================================
 describe('Phase 1 & 2: Network Lifecycle and Native DOM Node Parsing', () => {
-    let fetchSpy: any;
+    let fetchSpy: MockInstance;
 
     beforeEach(() => {
         fetchSpy = vi.spyOn(global, 'fetch');
@@ -270,7 +281,7 @@ describe('Phase 1 & 2: Network Lifecycle and Native DOM Node Parsing', () => {
     it('should issue a fetch request in loadAsync and reject upon 404', async () => {
         fetchSpy.mockResolvedValueOnce({
             ok: true, text: async () => `<robot name="NetworkRobot"><link name="Base"/></robot>`
-        } as Response);
+        } as unknown as Response);
 
         const loader = new URDFLoader();
         const robot = await loader.loadAsync('https://fake-server.com/robot.urdf');
@@ -278,7 +289,7 @@ describe('Phase 1 & 2: Network Lifecycle and Native DOM Node Parsing', () => {
         expect(fetchSpy).toHaveBeenCalledWith('https://fake-server.com/robot.urdf', expect.any(Object));
         expect(robot.robotName).toBe('NetworkRobot');
 
-        fetchSpy.mockResolvedValueOnce({ ok: false, status: 404, statusText: 'Not Found' } as Response);
+        fetchSpy.mockResolvedValueOnce({ ok: false, status: 404, statusText: 'Not Found' } as unknown as Response);
         await expect(loader.loadAsync('https://fake-server.com/missing.urdf')).rejects.toThrowError(/Failed to load url/i);
     });
 });
@@ -342,7 +353,7 @@ describe('Phase 3: Mesh Fault Tolerance and Resiliency', () => {
 // PHASE 4: LARGE SCALE INTEGRATION
 // ==========================================
 describe('Phase 4: Stress Tests and Large Scale Parsing', () => {
-    let fetchSpy: any;
+    let fetchSpy: MockInstance;
 
     beforeEach(() => {
         fetchSpy = vi.spyOn(global, 'fetch');
@@ -366,7 +377,7 @@ describe('Phase 4: Stress Tests and Large Scale Parsing', () => {
     it('should process a massive model structure like NASA Robonaut (128 links, 127 joints) without overflowing stack', async () => {
         fetchSpy.mockResolvedValue({
             ok: true, text: async () => generateLargeURDF('Robonaut_Mock', 128)
-        } as Response);
+        } as unknown as Response);
 
         const loader = new URDFLoader();
         const robot = await loader.loadAsync('https://mock-nasa.gov/robonaut.urdf');
@@ -379,7 +390,7 @@ describe('Phase 4: Stress Tests and Large Scale Parsing', () => {
     it('should structurally parse a medium load model like NASA Valkyrie (69 links, 68 joints)', async () => {
         fetchSpy.mockResolvedValue({
             ok: true, text: async () => generateLargeURDF('Valkyrie_Mock', 69)
-        } as Response);
+        } as unknown as Response);
 
         const loader = new URDFLoader();
         const robot = await loader.loadAsync('https://mock-nasa.gov/valkyrie.urdf');
@@ -400,7 +411,7 @@ describe('Phase 4: Stress Tests and Large Scale Parsing', () => {
                 </link>
             </robot>
         `;
-        fetchSpy.mockResolvedValue({ ok: true, text: async () => multiPkgUrdf } as Response);
+        fetchSpy.mockResolvedValue({ ok: true, text: async () => multiPkgUrdf } as unknown as Response);
 
         const loader = new URDFLoader();
         loader.packages = {

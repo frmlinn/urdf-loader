@@ -10,6 +10,10 @@ export default tseslint.config(
       globals: {
         ...globals.browser,
         ...globals.node
+      },
+      parserOptions: {
+        project: ['./tsconfig.json', './test/tsconfig.json'],
+        tsconfigRootDir: import.meta.dirname,
       }
     },
     ignores: [
