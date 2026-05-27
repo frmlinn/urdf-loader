@@ -1,7 +1,5 @@
 # urdf-loader
 
-# urdf-loader
-
 [![CI Tests](https://img.shields.io/github/actions/workflow/status/frmlinn/urdf-loader/ci-test.yml?label=CI%20Tests)](https://github.com/frmlinn/urdf-loader/actions/workflows/ci-test.yml)
 [![GitHub Pages Deploy](https://img.shields.io/github/actions/workflow/status/frmlinn/urdf-loader/deploy.yml?label=GitHub%20Pages%20Deploy)](https://frmlinn.github.io/urdf-loader/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
