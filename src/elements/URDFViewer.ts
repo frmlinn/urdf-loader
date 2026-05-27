@@ -69,22 +69,40 @@ export class URDFViewer extends HTMLElement {
     set up(val: string) { this.setAttribute('up', val); }
 
     get ambientColor(): string { return this.getAttribute('ambient-color') || '#8ea0a8'; }
-    set ambientColor(val: string) { val ? this.setAttribute('ambient-color', val) : this.removeAttribute('ambient-color'); }
+    set ambientColor(val: string) { 
+        if (val) this.setAttribute('ambient-color', val);
+        else this.removeAttribute('ambient-color');
+    }
 
     get displayShadow(): boolean { return this.hasAttribute('display-shadow'); }
-    set displayShadow(val: boolean) { val ? this.setAttribute('display-shadow', '') : this.removeAttribute('display-shadow'); }
+    set displayShadow(val: boolean) { 
+        if (val) this.setAttribute('display-shadow', '');
+        else this.removeAttribute('display-shadow');
+    }
 
     get ignoreLimits(): boolean { return this.hasAttribute('ignore-limits'); }
-    set ignoreLimits(val: boolean) { val ? this.setAttribute('ignore-limits', '') : this.removeAttribute('ignore-limits'); }
+    set ignoreLimits(val: boolean) { 
+        if (val) this.setAttribute('ignore-limits', '');
+        else this.removeAttribute('ignore-limits');
+    }
 
     get showCollision(): boolean { return this.hasAttribute('show-collision'); }
-    set showCollision(val: boolean) { val ? this.setAttribute('show-collision', '') : this.removeAttribute('show-collision'); }
+    set showCollision(val: boolean) { 
+        if (val) this.setAttribute('show-collision', '');
+        else this.removeAttribute('show-collision');
+    }
 
     get autoRedraw(): boolean { return this.hasAttribute('auto-redraw'); }
-    set autoRedraw(val: boolean) { val ? this.setAttribute('auto-redraw', '') : this.removeAttribute('auto-redraw'); }
+    set autoRedraw(val: boolean) { 
+        if (val) this.setAttribute('auto-redraw', '');
+        else this.removeAttribute('auto-redraw');
+    }
 
     get noAutoRecenter(): boolean { return this.hasAttribute('no-auto-recenter'); }
-    set noAutoRecenter(val: boolean) { val ? this.setAttribute('no-auto-recenter', '') : this.removeAttribute('no-auto-recenter'); }
+    set noAutoRecenter(val: boolean) { 
+        if (val) this.setAttribute('no-auto-recenter', '');
+        else this.removeAttribute('no-auto-recenter');
+    }
 
     /** Returns a dictionary of current joint values. Supports both scalar and vector states. */
     get jointValues(): Record<string, number | number[]> {
@@ -470,9 +488,12 @@ export class URDFViewer extends HTMLElement {
                             mat = new THREE.MeshPhongMaterial();
                             THREE.Material.prototype.copy.call(mat, m);
                         }
-                        if ((mat as any).map) {
-                            (mat as any).map.colorSpace = THREE.SRGBColorSpace;
+                        
+                        const matWithMap = mat as THREE.Material & { map?: THREE.Texture | null };
+                        if (matWithMap.map) {
+                            matWithMap.map.colorSpace = THREE.SRGBColorSpace;
                         }
+                        
                         return mat;
                     });
                     
@@ -554,12 +575,12 @@ export class URDFViewer extends HTMLElement {
             if (hasColliders) {
                 mesh.raycast = emptyRaycast;
             } else {
-                delete (mesh as any).raycast;
+                delete (mesh as { raycast?: unknown }).raycast;
             }
         });
 
         this.robot.flatColliderMeshes.forEach(mesh => {
-            delete (mesh as any).raycast; 
+            delete (mesh as { raycast?: unknown }).raycast; 
             mesh.material = collisionMaterial;
             mesh.castShadow = false;
 
@@ -575,7 +596,7 @@ export class URDFViewer extends HTMLElement {
 
     /** Applies base Euler rotations to match URDF environment conventions. */
     private _setUp(upAxis: string): void {
-        let axis = upAxis ? upAxis.toUpperCase() : '+Z';
+        const axis = upAxis ? upAxis.toUpperCase() : '+Z';
         const sign = axis.replace(/[^-+]/g, '')[0] || '+';
         const char = axis.replace(/[^XYZ]/gi, '')[0] || 'Z';
 

@@ -4,8 +4,8 @@ import { URDFJoint } from './URDFClasses';
 /**
  * Helper function to determine if a Three.js object is a movable URDF joint.
  */
-export function isJoint(j: any): j is URDFJoint {
-    return j && j.isURDFJoint && j.jointType !== 'fixed';
+export function isJoint(j: unknown): j is URDFJoint {
+    return !!j && typeof j === 'object' && 'isURDFJoint' in j && (j as URDFJoint).jointType !== 'fixed';
 }
 
 /** * Traverses up the hierarchy to find the nearest parent joint.

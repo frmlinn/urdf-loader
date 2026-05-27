@@ -27,11 +27,17 @@ export class URDFManipulator extends URDFViewer {
 
     /** Gets or sets whether joint dragging is disabled. */
     get disableDragging(): boolean { return this.hasAttribute('disable-dragging'); }
-    set disableDragging(val: boolean) { val ? this.setAttribute('disable-dragging', 'true') : this.removeAttribute('disable-dragging'); }
+    set disableDragging(val: boolean) { 
+        if (val) this.setAttribute('disable-dragging', 'true');
+        else this.removeAttribute('disable-dragging');
+    }
 
     /** Gets or sets the hex color used for highlighting hovered joints. */
     get highlightColor(): string { return this.getAttribute('highlight-color') || '#FFFFFF'; }
-    set highlightColor(val: string) { val ? this.setAttribute('highlight-color', val) : this.removeAttribute('highlight-color'); }
+    set highlightColor(val: string) { 
+        if (val) this.setAttribute('highlight-color', val);
+        else this.removeAttribute('highlight-color');
+    }
 
     constructor() {
         super();

@@ -1,4 +1,4 @@
-import { Euler, Object3D, Vector3, Quaternion, Matrix4, Mesh } from 'three';
+import { Euler, Object3D, Vector3, Quaternion, Matrix4, Mesh, Material, Texture } from 'three';
 
 // Pre-allocated objects for zero-garbage collection mathematical operations
 const _tempAxis = new Vector3();
@@ -16,14 +16,15 @@ const _tempPosition = new Vector3();
  * Initializes the reference count if it does not exist.
  * * @param res - The Three.js resource (or array of resources) to retain.
  */
-export function retainResource(res: any): void {
+export function retainResource(res: unknown): void {
     if (!res) return;
     if (Array.isArray(res)) {
         res.forEach(retainResource);
         return;
     }
-    res.userData = res.userData || {};
-    res.userData.refCount = (res.userData.refCount || 0) + 1;
+    const obj = res as { userData?: { refCount?: number } };
+    obj.userData = obj.userData || {};
+    obj.userData.refCount = (obj.userData.refCount || 0) + 1;
 }
 
 /**
@@ -31,17 +32,18 @@ export function retainResource(res: any): void {
  * if the reference count reaches zero.
  * * @param res - The Three.js resource (or array of resources) to release.
  */
-export function releaseResource(res: any): void {
+export function releaseResource(res: unknown): void {
     if (!res) return;
     if (Array.isArray(res)) {
         res.forEach(releaseResource);
         return;
     }
-    if (res.userData && typeof res.userData.refCount === 'number') {
-        res.userData.refCount--;
-        if (res.userData.refCount <= 0) {
-            if (typeof res.dispose === 'function') res.dispose();
-            delete res.userData.refCount;
+    const obj = res as { userData?: { refCount?: number }, dispose?: () => void };
+    if (obj.userData && typeof obj.userData.refCount === 'number') {
+        obj.userData.refCount--;
+        if (obj.userData.refCount <= 0) {
+            if (typeof obj.dispose === 'function') obj.dispose();
+            delete obj.userData.refCount;
         }
     }
 }
@@ -56,11 +58,11 @@ export function retainMeshResources(mesh: Mesh): void {
         retainResource(mesh.material);
         const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         mats.forEach(m => {
-            if ((m as any).map) retainResource((m as any).map);
+            const matWithMap = m as Material & { map?: Texture | null };
+            if (matWithMap.map) retainResource(matWithMap.map);
         });
     }
 }
-
 /**
  * Releases all geometry and material resources associated with a given mesh.
  * * @param mesh - The mesh whose resources will be released.
@@ -71,7 +73,8 @@ export function releaseMeshResources(mesh: Mesh): void {
         releaseResource(mesh.material);
         const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         mats.forEach(m => {
-            if ((m as any).map) releaseResource((m as any).map);
+            const matWithMap = m as Material & { map?: Texture | null };
+            if (matWithMap.map) releaseResource(matWithMap.map);
         });
     }
 }
@@ -268,7 +271,8 @@ export class URDFJoint extends URDFBase {
                 if (angle === this.jointValue[0]) return didUpdate;
 
                 if (!this.ignoreLimits && this.jointType === 'revolute') {
-                    angle = Math.min(this.limit.upper, Math.max(this.limit.lower, angle));
+                    angle = Math.min(this.limit.upper, angle);
+                    angle = Math.max(this.limit.lower, angle);
                 }
 
                 this.quaternion
@@ -291,7 +295,8 @@ export class URDFJoint extends URDFBase {
                 if (pos === this.jointValue[0]) return didUpdate;
 
                 if (!this.ignoreLimits) {
-                    pos = Math.min(this.limit.upper, Math.max(this.limit.lower, pos));
+                    pos = Math.min(this.limit.upper, pos);
+                    pos = Math.max(this.limit.lower, pos);
                 }
 
                 this.position.copy(this.origPosition);
@@ -306,12 +311,9 @@ export class URDFJoint extends URDFBase {
                 return didUpdate;
             }
 
-            case 'floating':
-            case 'planar': {
+            case 'floating': {
                 let valuesChanged = false;
-                const limit = this.jointType === 'floating' ? 6 : 3;
-
-                for (let i = 0; i < limit; i++) {
+                for (let i = 0; i < 6; i++) {
                     const rawVal = values[i];
                     if (rawVal !== null && rawVal !== undefined) {
                         const parsedVal = typeof rawVal === 'string' ? parseFloat(rawVal) : rawVal;
@@ -325,16 +327,38 @@ export class URDFJoint extends URDFBase {
                 if (!valuesChanged) return didUpdate;
 
                 _tempOrigTransform.compose(this.origPosition, this.origQuaternion, _tempScale);
-
-                if (this.jointType === 'floating') {
-                    _tempQuat.setFromEuler(_tempEuler.set(this.jointValue[3], this.jointValue[4], this.jointValue[5], 'XYZ'));
-                    _tempPosition.set(this.jointValue[0], this.jointValue[1], this.jointValue[2]);
-                } else {
-                    _tempQuat.setFromAxisAngle(this.axis, this.jointValue[2]);
-                    _tempPosition.set(this.jointValue[0], this.jointValue[1], 0.0);
-                }
-
+                _tempQuat.setFromEuler(_tempEuler.set(this.jointValue[3], this.jointValue[4], this.jointValue[5], 'XYZ'));
+                _tempPosition.set(this.jointValue[0], this.jointValue[1], this.jointValue[2]);
                 _tempTransform.compose(_tempPosition, _tempQuat, _tempScale);
+
+                _tempOrigTransform.premultiply(_tempTransform);
+                this.position.setFromMatrixPosition(_tempOrigTransform);
+                this.rotation.setFromRotationMatrix(_tempOrigTransform);
+
+                this.matrixWorldNeedsUpdate = true;
+                return true;
+            }
+
+            case 'planar': {
+                let valuesChanged = false;
+                for (let i = 0; i < 3; i++) {
+                    const rawVal = values[i];
+                    if (rawVal !== null && rawVal !== undefined) {
+                        const parsedVal = typeof rawVal === 'string' ? parseFloat(rawVal) : rawVal;
+                        if (this.jointValue[i] !== parsedVal) {
+                            this.jointValue[i] = parsedVal;
+                            valuesChanged = true;
+                        }
+                    }
+                }
+                
+                if (!valuesChanged) return didUpdate;
+
+                _tempOrigTransform.compose(this.origPosition, this.origQuaternion, _tempScale);
+                _tempQuat.setFromAxisAngle(this.axis, this.jointValue[2]);
+                _tempPosition.set(this.jointValue[0], this.jointValue[1], 0.0);
+                _tempTransform.compose(_tempPosition, _tempQuat, _tempScale);
+
                 _tempOrigTransform.premultiply(_tempTransform);
                 this.position.setFromMatrixPosition(_tempOrigTransform);
                 this.rotation.setFromRotationMatrix(_tempOrigTransform);
@@ -417,8 +441,11 @@ export class URDFRobot extends URDFLink {
         const traverseCaches = (obj: Object3D, isColliderContext: boolean) => {
             let currentContext = isColliderContext;
             
-            if ('isURDFCollider' in obj) currentContext = true;
-            else if ('isURDFVisual' in obj) currentContext = false;
+            if ('isURDFCollider' in obj) {
+                currentContext = true;
+            } else if ('isURDFVisual' in obj) {
+                currentContext = false;
+            }
 
             if (obj instanceof Mesh) {
                 // Eager computation vital for simulations and physics
@@ -427,8 +454,11 @@ export class URDFRobot extends URDFLink {
                     if (!obj.geometry.boundingBox) obj.geometry.computeBoundingBox();
                 }
 
-                if (currentContext) this.flatColliderMeshes.push(obj);
-                else this.flatVisualMeshes.push(obj);
+                if (currentContext) {
+                    this.flatColliderMeshes.push(obj);
+                } else {
+                    this.flatVisualMeshes.push(obj);
+                }
             }
 
             const children = obj.children;
@@ -466,7 +496,9 @@ export class URDFRobot extends URDFLink {
                     this.visual[c.urdfName] = c as URDFVisual;
                 }
             }
-            if (c instanceof Mesh) retainMeshResources(c);
+            if (c instanceof Mesh) {
+                retainMeshResources(c);
+            }
         });
 
         for (const jointName in this.joints) {
@@ -499,7 +531,9 @@ export class URDFRobot extends URDFLink {
      */
     public setJointValue(jointName: string, ...angle: (number | string | null)[]): boolean {
         const joint = this.joints[jointName];
-        if (joint) return joint.setJointValue(...angle);
+        if (joint) {
+            return joint.setJointValue(...angle);
+        }
         return false;
     }
 
