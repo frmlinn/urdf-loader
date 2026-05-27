@@ -12,12 +12,13 @@ export default tseslint.config(
         ...globals.node
       },
       parserOptions: {
-        project: ['./tsconfig.json', './test/tsconfig.json'],
+        project: ['./tsconfig.eslint.json'],
         tsconfigRootDir: import.meta.dirname,
       }
     },
     ignores: [
       'dist/**',
+      'dist-demo/**',
       'node_modules/**',
       'urdf/**'
     ],
