@@ -27,7 +27,7 @@
   "scripts": {
     "dev": "vite serve",
     "build": "vite build && tsc",
-    "build:demo": "cross-env BUILD_DEMO=true vite build",
+    "build:demo": "vite build --mode demo", 
     "test": "vitest run",
     "test:watch": "vitest",
     "bench": "vitest bench",
