@@ -4,10 +4,9 @@ import { resolve } from 'path';
 export default defineConfig(({ mode }) => {
   const isDemo = mode === 'demo';
 
-if (isDemo) {
+  if (isDemo) {
     return {
-      base: '/urdf-loader/', 
-      
+      base: '/urdf-loader/',
       root: resolve(__dirname, 'demo'),
       build: {
         outDir: resolve(__dirname, 'dist-demo'),
@@ -24,6 +23,7 @@ if (isDemo) {
   }
 
   return {
+    base: '/urdf-loader/',
     root: process.cwd(),
     build: {
       lib: {
@@ -45,7 +45,7 @@ if (isDemo) {
       emptyOutDir: true
     },
     server: {
-      open: '/demo/t12/index.html',
+      open: '/urdf-loader/demo/t12/index.html',
     }
   };
 });

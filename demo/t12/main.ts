@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { MathUtils } from 'three';
 import '../../src/elements/URDFManipulator';
 import type { URDFManipulator } from '../../src/elements/URDFManipulator';
 
@@ -48,12 +48,12 @@ function animationLoop(time: number): void {
         const offset = (i * Math.PI) / 3;
         const ratio = Math.max(0, Math.sin(timeScaled + offset));
 
-        viewer.setJointValue(`HP${i}`, THREE.MathUtils.lerp(30, 0, ratio) * THREE.MathUtils.DEG2RAD);
-        viewer.setJointValue(`KP${i}`, THREE.MathUtils.lerp(90, 150, ratio) * THREE.MathUtils.DEG2RAD);
-        viewer.setJointValue(`AP${i}`, THREE.MathUtils.lerp(-30, -60, ratio) * THREE.MathUtils.DEG2RAD);
+        viewer.setJointValue(`HP${i}`, MathUtils.lerp(30, 0, ratio) * MathUtils.DEG2RAD);
+        viewer.setJointValue(`KP${i}`, MathUtils.lerp(90, 150, ratio) * MathUtils.DEG2RAD);
+        viewer.setJointValue(`AP${i}`, MathUtils.lerp(-30, -60, ratio) * MathUtils.DEG2RAD);
 
-        viewer.setJointValue(`TC${i}A`, THREE.MathUtils.lerp(0, 0.065, ratio));
-        viewer.setJointValue(`TC${i}B`, THREE.MathUtils.lerp(0, 0.065, ratio));
+        viewer.setJointValue(`TC${i}A`, MathUtils.lerp(0, 0.065, ratio));
+        viewer.setJointValue(`TC${i}B`, MathUtils.lerp(0, 0.065, ratio));
         
         // Continuous wheel rotation
         viewer.setJointValue(`W${i}`, timeScaled); 

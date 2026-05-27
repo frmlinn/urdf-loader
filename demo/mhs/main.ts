@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { LoadingManager, Object3D, Mesh } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import '../../src/elements/URDFManipulator';
 import type { URDFManipulator } from '../../src/elements/URDFManipulator';
@@ -12,14 +12,14 @@ let isAnimating = true;
  * Inject custom GLTFLoader hook specifically for this demo to handle 
  * the modern .gltf/.glb files used by the MHS Helicopter.
  */
-viewer.loadMeshFunc = async (path: string, manager: THREE.LoadingManager): Promise<THREE.Object3D> => {
+viewer.loadMeshFunc = async (path: string, manager: LoadingManager): Promise<Object3D> => {
     return new Promise((resolve, reject) => {
         new GLTFLoader(manager).load(
             path,
             (gltf) => {
                 // Eager evaluation: Traverse GLTF hierarchy once to enable shadows on all inner meshes
                 gltf.scene.traverse((node) => {
-                    if (node instanceof THREE.Mesh) {
+                    if (node instanceof Mesh) {
                         node.castShadow = true;
                         node.receiveShadow = true;
                     }
