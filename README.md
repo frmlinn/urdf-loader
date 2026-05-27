@@ -3,7 +3,7 @@
 Library for loading, parsing, and visualizing URDF (Unified Robot Description Format) models in the browser using Three.js.
 
 > [!NOTE]
-> This is a from-scratch rewrite focused on memory stability and performance optimization in continuous rendering environments and simulations. The original project can be found here: [urdf-loaders](https://github.com/gkjohnson/urdf-loaders)
+> This library is a complete from-scratch rewrite focused on memory stability and performance optimization in continuous rendering environments and simulations. The original project can be found here: [urdf-loaders](https://github.com/gkjohnson/urdf-loaders)
 
 ## Key Features
 
@@ -24,7 +24,7 @@ npm install @frmlinn/urdf-loader three
 ### Basic Usage
 The library exposes two main integration methods: via a standalone Web Component aimed at quick HTML declarations, or through programmatic use of the `URDFLoader` class for existing Three.js pipelines.
 
-1. **Web Component** (<urdf-viewer>)
+1. **Web Component** (`URDF Viewer`)
 
 This is the most straightforward method to render a robot in the browser. Upon importing the package, the element is automatically registered in the DOM and internally handles the instantiation of its own scene, lights, renderer, and orbit controls.
 
@@ -58,7 +58,7 @@ This version adds advanced reactive attributes to natively manage kinematic beha
 </urdf-viewer>
 ```
 
-2. **Programatic Usage (URDFLoader)**
+2. **Programatic Usage (`URDF Loader`)**
 
 For complex applications or robotic simulations where you already have an active canvas and a Three.js instance, you should interact directly with the `URDFLoader` class.
 
@@ -100,9 +100,13 @@ loader.load('path/to/your/model.urdf', (robot) => {
 ```
 
 ## Demos
-The repository includes two public examples to illustrate the viewer's capabilities:
-- **T12**: A standard test environment using a classic URDF based on independent STL meshes.
-- **MHS**: A complex model demonstrating the versatility of the `loadMeshFunc` property. The viewer transparently delegates the interpretation and optimization of large meshes encapsulated in GLB (Binary GLTF) format.
+The repository includes two live examples showcasing the viewer's capabilities:
+
+- [**NASA ATHLETE T12 Demo**](https://frmlinn.github.io/urdf-loader/t12/)  
+  Illustrates a classic high-degree-of-freedom kinematic chain using standalone binary STL meshes. It showcases real-time joint limit constraints and camera auto-centering telemetry under heavy parallel movement.
+
+- [**NASA MHS Helicopter Demo**](https://frmlinn.github.io/urdf-loader/mhs/)  
+  Demonstrates complex mesh handling by overriding the architecture with custom `loadMeshFunc` implementation. The viewer delegates the parsing, pre-allocation, and structural shadow mapping optimization of heavy binary GLTF (GLB) assemblies
 
 ## Acknowledgments
 This project is a deep architectural reconstruction and iteration based on the excellent original work in the `urdf-loaders` library. Out of respect for the original maintainers and their initial effort, they are credited with the corresponding copyrights, and the Apache 2.0 license under which they published their codebase remains unaltered.

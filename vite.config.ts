@@ -10,6 +10,12 @@ export default defineConfig(({ mode }) => {
       build: {
         outDir: resolve(__dirname, 'dist-demo'),
         emptyOutDir: true,
+        rollupOptions: {
+          input: {
+            t12: resolve(__dirname, 'demo/t12/index.html'),
+            mhs: resolve(__dirname, 'demo/mhs/index.html')
+          }
+        }
       }
     };
   }
