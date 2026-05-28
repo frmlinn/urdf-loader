@@ -16,6 +16,13 @@ export default defineConfig(({ mode }) => {
           input: {
             t12: resolve(__dirname, 'demo/t12/index.html'),
             mhs: resolve(__dirname, 'demo/mhs/index.html')
+          },
+          output: {
+            manualChunks: (id: string) => {
+              if (id.includes('node_modules/three')) {
+                return 'three-vendor';
+              }
+            }
           }
         }
       }
