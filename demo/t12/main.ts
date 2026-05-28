@@ -4,6 +4,7 @@ import type { URDFManipulator } from '../../src/elements/URDFManipulator';
 
 const viewer = document.getElementById('viewer') as URDFManipulator;
 const toggleAnim = document.getElementById('toggle-anim') as HTMLInputElement;
+const loaderOverlay = document.getElementById('loader-overlay') as HTMLElement;
 
 let isAnimating = true;
 
@@ -26,6 +27,12 @@ function setupEvents(): void {
         if (isAnimating) {
             isAnimating = false;
             toggleAnim.checked = false;
+        }
+    });
+
+    viewer.addEventListener('geometry-loaded', () => {
+        if (loaderOverlay) {
+            loaderOverlay.remove();
         }
     });
 }
