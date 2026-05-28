@@ -398,7 +398,7 @@ export class URDFLoader extends THREE.Loader {
 
     /**
      * Default callback applied to fetch and parse external meshes (DAE/STL).
-     * * @param path - URL to load the mesh from.
+     * @param path - URL to load the mesh from.
      * @param manager - Global Three.js LoadingManager context.
      * @returns A promise resolving to the fully constructed Object3D.
      */
@@ -409,12 +409,21 @@ export class URDFLoader extends THREE.Loader {
             const loader = new STLLoader(manager);
             const geom = await loader.loadAsync(path) as THREE.BufferGeometry;
             if (geom) {
+                if (!geom.boundingSphere) geom.computeBoundingSphere();
+                if (!geom.boundingBox) geom.computeBoundingBox();
+                
                 return new THREE.Mesh(geom, new THREE.MeshPhongMaterial());
             }
         } else if (ext === 'dae') {
             const loader = new ColladaLoader(manager);
             const dae = await loader.loadAsync(path) as unknown as { scene: THREE.Group };
             if (dae && dae.scene) {
+                dae.scene.traverse((c) => {
+                    if (c instanceof THREE.Mesh && c.geometry) {
+                        if (!c.geometry.boundingSphere) c.geometry.computeBoundingSphere();
+                        if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
+                    }
+                });
                 return dae.scene;
             }
         }
