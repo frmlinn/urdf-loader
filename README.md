@@ -10,7 +10,7 @@ Library for loading, parsing, and visualizing URDF (Unified Robot Description Fo
 > [!NOTE]
 > This library is a complete from-scratch rewrite focused on memory stability and performance optimization in continuous rendering environments and simulations. The original project can be found here: [urdf-loaders](https://github.com/gkjohnson/urdf-loaders)
 
-## Key Features
+## Core Capabilities
 
 * **Memory Management and Zero-GC Architecture**: Implements a Reference Counting system tailored to the lifecycle of meshes, geometries, and materials in Three.js. This guarantees the proper release and destruction of resources in the GPU when a model or link is removed from the scene, preventing critical memory leaks. Additionally, kinematic update functions rely on pre-allocated mathematical objects at the module level, completely eliminating the instantiation of temporary objects in rendering loops and avoiding Garbage Collector pauses.
 * **Linear and Optimized Spatial Calculation**: The loader's core replaces traditional recursive traversals over the robot's transformation tree with flat caches (one-dimensional arrays) for visual and collision meshes. Spatial bounds calculation is executed through a hybrid heuristic combining Bounding Boxes and Bounding Spheres. This drastically reduces mathematical complexity and CPU load during camera recentering operations, selective raycasting, and dynamic ground plane adjustment.
@@ -29,7 +29,7 @@ npm install @frmlinn/urdf-loader three
 ### Basic Usage
 The library exposes two main integration methods: via a standalone Web Component aimed at quick HTML declarations, or through programmatic use of the `URDFLoader` class for existing Three.js pipelines.
 
-1. **Web Component** (`URDF Viewer`)
+- **Web Component** (`URDF Viewer`)
 
 This is the most straightforward method to render a robot in the browser. Upon importing the package, the element is automatically registered in the DOM and internally handles the instantiation of its own scene, lights, renderer, and orbit controls.
 
@@ -63,7 +63,7 @@ This version adds advanced reactive attributes to natively manage kinematic beha
 </urdf-viewer>
 ```
 
-2. **Programatic Usage (`URDF Loader`)**
+- **Programatic Usage (`URDF Loader`)**
 
 For complex applications or robotic simulations where you already have an active canvas and a Three.js instance, you should interact directly with the `URDFLoader` class.
 
