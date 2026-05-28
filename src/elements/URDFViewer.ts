@@ -466,7 +466,9 @@ export class URDFViewer extends HTMLElement {
         });
     }
 
-    /** Internally fetches and processes the raw URDF descriptor. */
+    /**
+     * Internally fetches and processes the raw URDF descriptor.
+     */
     private _loadUrdf(pkg: string, urdf: string): void {
         this.dispatchEvent(new CustomEvent('urdf-change', { bubbles: true, cancelable: true, composed: true }));
 
@@ -541,6 +543,8 @@ export class URDFViewer extends HTMLElement {
             updateMaterials(this.robot);
             this._setIgnoreLimits(this.ignoreLimits);
             this._updateCollisionVisibility();
+
+            this.renderer.compile(this.scene, this.camera);
 
             this.dispatchEvent(new CustomEvent('geometry-loaded', { bubbles: true, cancelable: true, composed: true }));
             this.recenter();

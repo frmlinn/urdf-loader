@@ -18,11 +18,15 @@ viewer.loadMeshFunc = async (path: string, manager: LoadingManager): Promise<Obj
         new GLTFLoader(manager).load(
             path,
             (gltf) => {
-                // Eager evaluation: Traverse GLTF hierarchy once to enable shadows on all inner meshes
                 gltf.scene.traverse((node) => {
                     if (node instanceof Mesh) {
                         node.castShadow = true;
                         node.receiveShadow = true;
+                        
+                        if (node.geometry) {
+                            if (!node.geometry.boundingSphere) node.geometry.computeBoundingSphere();
+                            if (!node.geometry.boundingBox) node.geometry.computeBoundingBox();
+                        }
                     }
                 });
                 
