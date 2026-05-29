@@ -1,13 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
-import { Mesh, Object3D, Material } from 'three';
-import * as fs from 'fs';
-import * as path from 'path';
+import { Mesh, Object3D, Material, TextureLoader, Texture, BufferGeometry, Group, MeshPhongMaterial } from 'three';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
 import { URDFLoader } from '../../src/core/URDFLoader';
-import { URDFRobot, URDFMimicJoint } from '../../src/core/URDFClasses';
+import { URDFRobot, URDFMimicJoint, URDFVisual } from '../../src/core/URDFClasses';
 
 // ==========================================
 // MOCKS & UTILITIES
 // ==========================================
+
+/**
+ * Flushes the microtask queue to process pending Promises 
+ * without introducing artificial setTimeout delays blocking the event loop.
+ */
+const flushPromises = () => new Promise(resolve => process.nextTick(resolve));
 
 /**
  * Creates an empty mock mesh to simulate asynchronous geometry loading.
@@ -15,14 +21,13 @@ import { URDFRobot, URDFMimicJoint } from '../../src/core/URDFClasses';
  */
 async function emptyLoadMeshFunc(): Promise<Object3D> {
     const mesh = new Mesh();
-    // Safely inject mock flag for test tracking
     Object.defineProperty(mesh, 'fromCallback', { value: true, writable: false });
     return mesh;
 }
 
 /**
  * Recursively asserts deep structural and property equality between two URDF structures.
- * * @param ra - The reference URDF node.
+ * @param ra - The reference URDF node.
  * @param rb - The target URDF node to compare against.
  */
 function compareRobots(ra: unknown, rb: unknown): void {
@@ -83,7 +88,7 @@ function compareRobots(ra: unknown, rb: unknown): void {
 // CONFIGURATION & PARSING TESTS
 // ==========================================
 describe('URDFLoader - Configuration and Options', () => {
-    describe('parseVisual, parseCollision', () => {
+    describe('parseVisual & parseCollision', () => {
         const urdfXML = `
             <robot name="TEST">
                 <link name="LINK1">
@@ -126,7 +131,7 @@ describe('URDFLoader - Configuration and Options', () => {
         });
     });
 
-    describe('Package Resolution (packages)', () => {
+    describe('Package Resolution', () => {
         const urdf = `
             <robot name="TEST">
                 <link name="Body">
@@ -142,7 +147,7 @@ describe('URDFLoader - Configuration and Options', () => {
             loader.loadMeshFunc = async (url) => { loadedUrl = url; return new Mesh(); };
             
             loader.parse(urdf);
-            await new Promise(resolve => setTimeout(resolve, 5)); 
+            await flushPromises(); 
             
             expect(loadedUrl).toEqual('path/to/pkg1/path/model.stl');
         });
@@ -154,9 +159,25 @@ describe('URDFLoader - Configuration and Options', () => {
             loader.loadMeshFunc = async (url) => { loadedUrl = url; return new Mesh(); };
             
             loader.parse(urdf);
-            await new Promise(resolve => setTimeout(resolve, 5));
+            await flushPromises();
             
             expect(loadedUrl).toEqual('func/path/1/path/model.stl');
+        });
+
+        // ==========================================
+        // COVERAGE 2: Return null fallback for unsupported configurations
+        // ==========================================
+        it('should return null when resolving package paths if packages config is of an unsupported type', async () => {
+            const loader = new URDFLoader();
+            loader.packages = 123 as unknown as string; 
+            let loadedUrl: string | null = 'not-called';
+            loader.loadMeshFunc = async (url) => { loadedUrl = url; return new Mesh(); };
+            
+            loader.parse(urdf);
+            await flushPromises(); 
+            
+            // Si retorna null en el scope de resolvePath, loadMeshFunc no se llama
+            expect(loadedUrl).toEqual('not-called'); 
         });
     });
 });
@@ -174,7 +195,7 @@ describe('Cloning Mechanism', () => {
 
         compareRobots(robot, robot.clone());
 
-        robot.name = 'RENOMBRADO';
+        robot.name = 'RENAMED';
         compareRobots(robot, robot.clone());
     });
 });
@@ -199,7 +220,7 @@ describe('Material Tag Parsing', () => {
     });
 });
 
-describe('Mimic Tag Integrity (Logical Validation)', () => {
+describe('Mimic Tag Integrity', () => {
     it('should throw an error and abort when encountering infinite mimic loops', () => {
         const loader = new URDFLoader();
         const urdf = `
@@ -227,27 +248,86 @@ describe('Mimic Tag Integrity (Logical Validation)', () => {
     });
 });
 
-describe('Full Local File Parsing', () => {
-    it('should parse local T12.URDF correctly and populate physical maps', () => {
+describe('Structural Data Parsing', () => {
+    it('should parse a complex URDF string correctly and populate physical maps without I/O', () => {
         const loader = new URDFLoader();
         loader.packages = '/urdf';
         loader.loadMeshFunc = emptyLoadMeshFunc;
 
-        const urdfPath = path.resolve(process.cwd(), 'urdf/T12/urdf/T12.URDF');
-        const urdfContent = fs.readFileSync(urdfPath, 'utf8');
+        const urdfContent = `
+            <robot name="MockBot">
+                <link name="base_link">
+                    <visual><geometry><mesh filename="package://mesh.stl"/></geometry></visual>
+                    <collision><geometry><box size="1 1 1"/></geometry></collision>
+                    <inertial><mass value="10.0"/><origin xyz="0 0 0" rpy="0 0 0"/></inertial>
+                </link>
+                <link name="leg_1" />
+                <joint name="j1" type="revolute">
+                    <parent link="base_link"/>
+                    <child link="leg_1"/>
+                    <limit effort="10" lower="-1" upper="1" velocity="5"/>
+                </joint>
+            </robot>
+        `;
 
         const robot = loader.parse(urdfContent) as URDFRobot;
 
         expect(robot.isURDFRobot).toBe(true);
         expect(Object.keys(robot.links).length).toBeGreaterThan(0);
         expect(Object.keys(robot.joints).length).toBeGreaterThan(0);
+        expect(robot.robotName).toBe('MockBot');
+    });
+
+    // ==========================================
+    // COVERAGE 3, 4, 5, 6: Orígenes, Escalas y Materiales Inline
+    // ==========================================
+    it('should parse inline visual materials, mesh scales, visual origins, and joint origins', async () => {
+        const loader = new URDFLoader();
+        loader.loadMeshFunc = emptyLoadMeshFunc;
+        
+        const urdf = `
+            <robot name="FullParse">
+                <link name="L1">
+                    <visual>
+                        <origin xyz="1 2 3" rpy="0 1.570796 0"/>
+                        <geometry><mesh filename="dummy.stl" scale="2 3 4"/></geometry>
+                        <material><color rgba="1 0.5 0.2 1"/></material>
+                    </visual>
+                </link>
+                <link name="L2"/>
+                <joint name="J1" type="fixed">
+                    <origin xyz="4 5 6" rpy="0 0 1.570796"/>
+                    <parent link="L1"/>
+                    <child link="L2"/>
+                </joint>
+            </robot>
+        `;
+        
+        const robot = loader.parse(urdf) as URDFRobot;
+        await flushPromises();
+
+        const joint = robot.joints['J1'];
+        expect(joint.position.toArray()).toEqual([4, 5, 6]);
+        expect(joint.rotation.z).toBeCloseTo(1.570796);
+
+        const visual = robot.links['L1'].children.find(c => c.type === 'URDFVisual') as URDFVisual;
+        expect(visual.position.toArray()).toEqual([1, 2, 3]);
+        expect(visual.rotation.y).toBeCloseTo(1.570796);
+
+        expect(visual.scale.toArray()).toEqual([2, 3, 4]);
+        
+        const mesh = visual.children[0] as Mesh;
+        const material = mesh.material as MeshPhongMaterial;
+        expect(material.color.r).toBeCloseTo(1);
+        expect(material.color.g).toBeCloseTo(0.5);
+        expect(material.color.b).toBeCloseTo(0.2);
     });
 });
 
 // ==========================================
-// PHASE 1 & 2: NETWORK CYCLE AND API BOUNDARIES
+// NETWORK CYCLE & API BOUNDARIES
 // ==========================================
-describe('Phase 1 & 2: Network Lifecycle and Native DOM Node Parsing', () => {
+describe('Network Lifecycle & Native DOM Node Parsing', () => {
     let fetchSpy: MockInstance;
 
     beforeEach(() => {
@@ -292,12 +372,28 @@ describe('Phase 1 & 2: Network Lifecycle and Native DOM Node Parsing', () => {
         fetchSpy.mockResolvedValueOnce({ ok: false, status: 404, statusText: 'Not Found' } as unknown as Response);
         await expect(loader.loadAsync('https://fake-server.com/missing.urdf')).rejects.toThrowError(/Failed to load url/i);
     });
+
+    // ==========================================
+    // COVERAGE 1: console.error genérico al fallar sin callback
+    // ==========================================
+    it('should fallback to console.error when load fails and no onError callback is provided', async () => {
+        fetchSpy.mockRejectedValueOnce(new Error('Network Fail'));
+        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        
+        const loader = new URDFLoader();
+        loader.load('fail.urdf');
+        
+        await flushPromises();
+        
+        expect(consoleSpy).toHaveBeenCalledWith('URDFLoader: Error loading file.', expect.any(Error));
+        consoleSpy.mockRestore();
+    });
 });
 
 // ==========================================
-// PHASE 3: FAULT TOLERANCE
+// FAULT TOLERANCE
 // ==========================================
-describe('Phase 3: Mesh Fault Tolerance and Resiliency', () => {
+describe('Mesh Fault Tolerance and Resiliency', () => {
     it('should complete topological instantiation gracefully even if a mesh fetch fails', async () => {
         const loader = new URDFLoader();
         const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -310,15 +406,12 @@ describe('Phase 3: Mesh Fault Tolerance and Resiliency', () => {
             </robot>
         `;
 
-        // Simulate catastrophic mesh failure
         loader.loadMeshFunc = async () => { throw new Error('Simulated Network Mesh Load Error'); };
 
         const robot = loader.parse(urdf);
         
-        // Await microtasks execution
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await flushPromises();
 
-        // Robot must survive retaining structural integrity
         expect(robot.robotName).toBe('ResilientRobot');
         expect(Object.keys(robot.links)).toHaveLength(1);
         expect(consoleSpy).toHaveBeenCalledWith('URDFLoader: Error loading mesh.', expect.any(Error));
@@ -343,16 +436,16 @@ describe('Phase 3: Mesh Fault Tolerance and Resiliency', () => {
             </robot>`;
 
         loader.parse(urdf);
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await flushPromises();
 
         expect(calls).toBe(3);
     });
 });
 
 // ==========================================
-// PHASE 4: LARGE SCALE INTEGRATION
+// LARGE SCALE INTEGRATION
 // ==========================================
-describe('Phase 4: Stress Tests and Large Scale Parsing', () => {
+describe('Stress Tests and Large Scale Parsing', () => {
     let fetchSpy: MockInstance;
 
     beforeEach(() => {
@@ -363,7 +456,6 @@ describe('Phase 4: Stress Tests and Large Scale Parsing', () => {
         vi.restoreAllMocks();
     });
 
-    /** Generates dynamic large URDF strings for load-stressing the parser */
     const generateLargeURDF = (name: string, linkCount: number) => {
         let xml = `<robot name="${name}">\n<link name="link_0"/>\n`;
         for(let i = 1; i < linkCount; i++) {
@@ -374,7 +466,7 @@ describe('Phase 4: Stress Tests and Large Scale Parsing', () => {
         return xml;
     };
 
-    it('should process a massive model structure like NASA Robonaut (128 links, 127 joints) without overflowing stack', async () => {
+    it('should process a massive model structure (128 links, 127 joints) without overflowing the stack', async () => {
         fetchSpy.mockResolvedValue({
             ok: true, text: async () => generateLargeURDF('Robonaut_Mock', 128)
         } as unknown as Response);
@@ -385,19 +477,6 @@ describe('Phase 4: Stress Tests and Large Scale Parsing', () => {
         expect(robot.robotName).toBe('Robonaut_Mock');
         expect(Object.keys(robot.links)).toHaveLength(128);
         expect(Object.keys(robot.joints)).toHaveLength(127);
-    });
-
-    it('should structurally parse a medium load model like NASA Valkyrie (69 links, 68 joints)', async () => {
-        fetchSpy.mockResolvedValue({
-            ok: true, text: async () => generateLargeURDF('Valkyrie_Mock', 69)
-        } as unknown as Response);
-
-        const loader = new URDFLoader();
-        const robot = await loader.loadAsync('https://mock-nasa.gov/valkyrie.urdf');
-
-        expect(robot.robotName).toBe('Valkyrie_Mock');
-        expect(Object.keys(robot.links)).toHaveLength(69);
-        expect(Object.keys(robot.joints)).toHaveLength(68);
     });
 
     it('should correctly resolve a complex multi-package ROS Industrial robot string', async () => {
@@ -423,9 +502,162 @@ describe('Phase 4: Stress Tests and Large Scale Parsing', () => {
         loader.loadMeshFunc = async (url) => { loadedUrls.push(url); return new Mesh(); };
 
         await loader.loadAsync('https://mock.com/multipkg.urdf');
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await flushPromises();
 
         expect(loadedUrls).toContain('https://ros-industrial.org/pkgA/mesh1.stl');
         expect(loadedUrls).toContain('https://ros-industrial.org/pkgB/mesh2.stl');
+    });
+});
+
+describe('Native Primitives, Textures and Material Assignment', () => {
+    it('should properly instantiate box, sphere, cylinder geometries and apply textures', async () => {
+        const loader = new URDFLoader();
+        
+        const textureLoaderSpy = vi.spyOn(TextureLoader.prototype, 'load').mockReturnValue(new Texture());
+        
+        const urdf = `
+            <robot name="Primitives">
+                <material name="TexMat">
+                    <texture filename="dummy.png"/>
+                </material>
+                <link name="BoxLink">
+                    <visual name="BoxVis"><geometry><box size="1 2 3"/></geometry><material name="TexMat"/></visual>
+                </link>
+                <link name="SphereLink">
+                    <visual name="SphereVis"><geometry><sphere radius="5"/></geometry></visual>
+                </link>
+                <link name="CylLink">
+                    <visual name="CylVis"><geometry><cylinder radius="2" length="10"/></geometry></visual>
+                </link>
+                
+                <joint name="J1" type="fixed"><parent link="BoxLink"/><child link="SphereLink"/></joint>
+                <joint name="J2" type="fixed"><parent link="BoxLink"/><child link="CylLink"/></joint>
+            </robot>
+        `;
+        
+        const robot = loader.parse(urdf);
+        await flushPromises(); 
+        
+        const boxVis = robot.visual['BoxVis'];
+        const boxMesh = boxVis.children[0] as Mesh;
+        expect(boxMesh.geometry.type).toBe('BoxGeometry');
+        expect(boxMesh.scale.toArray()).toEqual([1, 2, 3]);
+        expect((boxMesh.material as MeshPhongMaterial).map).toBeInstanceOf(Texture);
+        
+        const sphereVis = robot.visual['SphereVis'];
+        const sphereMesh = sphereVis.children[0] as Mesh;
+        expect(sphereMesh.geometry.type).toBe('SphereGeometry');
+        expect(sphereMesh.scale.toArray()).toEqual([5, 5, 5]);
+
+        const cylVis = robot.visual['CylVis'];
+        const cylMesh = cylVis.children[0] as Mesh;
+        expect(cylMesh.geometry.type).toBe('CylinderGeometry');
+        expect(cylMesh.scale.toArray()).toEqual([2, 10, 2]);
+
+        textureLoaderSpy.mockRestore();
+    });
+
+    it('should assign parsed URDF materials and position vectors to loaded external meshes', async () => {
+        const loader = new URDFLoader();
+        const loadedMesh = new Mesh(new BufferGeometry());
+        
+        loader.loadMeshFunc = async () => loadedMesh;
+        
+        const urdf = `
+            <robot name="MatTest">
+                <material name="Red"><color rgba="1 0 0 1"/></material>
+                <link name="L1">
+                    <visual><geometry><mesh filename="dummy.stl"/></geometry><material name="Red"/></visual>
+                </link>
+            </robot>
+        `;
+        
+        loader.parse(urdf);
+        await flushPromises(); 
+        
+        expect((loadedMesh.material as MeshPhongMaterial).color.r).toBe(1);
+        expect(loadedMesh.position.toArray()).toEqual([0, 0, 0]);
+        // Also asserts that the retained resource hook logic was triggered
+        expect(loadedMesh.geometry.userData?.refCount).toBeDefined();
+    });
+});
+
+describe('Internal DefaultMeshLoader and Edge Cases', () => {
+    it('should route to STLLoader for .stl extensions and generate a mesh with bounding volumes', async () => {
+        const loader = new URDFLoader();
+        const stlLoadSpy = vi.spyOn(STLLoader.prototype, 'loadAsync').mockResolvedValue(new BufferGeometry());
+        
+        const result = await loader.defaultMeshLoader('model.stl', loader.manager) as Mesh;
+        
+        expect(stlLoadSpy).toHaveBeenCalledWith('model.stl');
+        expect(result.geometry.type).toBe('BufferGeometry');
+        expect(result.geometry.boundingBox).toBeDefined(); 
+        
+        stlLoadSpy.mockRestore();
+    });
+
+    it('should route to ColladaLoader for .dae extensions and extract the parsed scene', async () => {
+        const loader = new URDFLoader();
+        const dummyScene = new Group();
+        dummyScene.add(new Mesh(new BufferGeometry())); 
+        
+        // FIX: Evita el uso de "as any" empleando una coerción indirecta que satisface estrictamente a TypeScript
+        const daeLoadSpy = vi.spyOn(ColladaLoader.prototype, 'loadAsync').mockResolvedValue({ scene: dummyScene } as unknown as never);
+        
+        const result = await loader.defaultMeshLoader('model.dae', loader.manager);
+        
+        expect(daeLoadSpy).toHaveBeenCalledWith('model.dae');
+        expect(result).toBe(dummyScene);
+        
+        daeLoadSpy.mockRestore();
+    });
+
+    it('should log a warning and return null for unsupported mesh extensions', async () => {
+        const loader = new URDFLoader();
+        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        
+        const result = await loader.defaultMeshLoader('model.obj', loader.manager);
+        
+        expect(result).toBeNull();
+        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('No loader available for extension .obj'));
+        
+        consoleSpy.mockRestore();
+    });
+
+    it('should log an error and return null when package is missing from the dictionary', () => {
+        const loader = new URDFLoader();
+        loader.packages = { 'known_pkg': '/path/' };
+        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        
+        const urdf = `
+            <robot name="PkgErr">
+                <link name="L1">
+                    <visual><geometry><mesh filename="package://unknown_pkg/mesh.stl"/></geometry></visual>
+                </link>
+            </robot>
+        `;
+        
+        loader.parse(urdf);
+        
+        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('unknown_pkg not found in provided package list'));
+        consoleSpy.mockRestore();
+    });
+
+    it('should trigger onProgress callback if provided to the load method', async () => {
+        const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({
+            ok: true, text: async () => '<robot name="Prog"><link name="L1"/></robot>'
+        } as Response);
+        
+        const loader = new URDFLoader();
+        const progressSpy = vi.fn();
+        
+        await new Promise<void>(resolve => {
+            loader.load('test.urdf', () => resolve(), progressSpy);
+        });
+        
+        expect(progressSpy).toHaveBeenCalled();
+        expect(progressSpy.mock.calls[0][0]).toBeInstanceOf(ProgressEvent);
+        
+        fetchSpy.mockRestore();
     });
 });

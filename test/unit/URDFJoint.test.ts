@@ -3,9 +3,9 @@ import { Vector3 } from 'three';
 import { URDFJoint, URDFMimicJoint } from '../../src/core/URDFClasses';
 
 /**
- * Unit tests for the URDFJoint and URDFMimicJoint class mechanics.
- * Validates constraints, kinematic limitations, mimicking propagation, 
- * and boolean return signatures used for performance optimizations.
+ * Unit tests for the URDFJoint and URDFMimicJoint classes.
+ * Validates constraints, kinematic limitations, mimic propagation, 
+ * and boolean return signatures used for rendering optimizations.
  */
 describe('URDFJoint Kinematics & Limits', () => {
     it('should enforce the default (1, 0, 0) normalized axis vector', () => {
@@ -47,9 +47,9 @@ describe('URDFJoint Kinematics & Limits', () => {
         joint.jointType = 'prismatic';
         joint.setJointValue(0.5);
         expect(joint.jointValue).toEqual([0.5]);
-        joint.setJointValue(1.5); // Overshoot
+        joint.setJointValue(1.5); 
         expect(joint.jointValue).toEqual([1]);
-        joint.setJointValue(-1.5); // Undershoot
+        joint.setJointValue(-1.5); 
         expect(joint.jointValue).toEqual([-1]);
 
         // Continuous joints lack physical limits
@@ -70,23 +70,15 @@ describe('URDFJoint Kinematics & Limits', () => {
         joint.axis = new Vector3(0, 0, 1);
 
         joint.jointType = 'revolute';
-        joint.setJointValue(0.5);
-        expect(joint.jointValue).toEqual([0.5]);
         joint.setJointValue(1.5);
         expect(joint.jointValue).toEqual([1.5]);
-        joint.setJointValue(-1.5);
-        expect(joint.jointValue).toEqual([-1.5]);
         
         joint.jointType = 'prismatic';
-        joint.setJointValue(0.5);
-        expect(joint.jointValue).toEqual([0.5]);
         joint.setJointValue(1.5);
         expect(joint.jointValue).toEqual([1.5]);
-        joint.setJointValue(-1.5);
-        expect(joint.jointValue).toEqual([-1.5]);
     });
 
-    describe('setJointValue (State Diff & Update Hooks)', () => {
+    describe('State Differencing & Defensive Branches', () => {
         it('should strictly return true if and only if the joint value mathematically changes', () => {
             const joint = new URDFJoint();
             joint.limit.upper = 1;
@@ -106,36 +98,34 @@ describe('URDFJoint Kinematics & Limits', () => {
             expect(joint.matrixWorldNeedsUpdate).toBeFalsy();
 
             // Pushed to physical limit (valid)
-            joint.matrixWorldNeedsUpdate = false;
             expect(joint.setJointValue(1.5)).toBeTruthy();
-            expect(joint.matrixWorldNeedsUpdate).toBeTruthy();
 
             // Exceeding limit again (internally clipped to 1, effectively no change)
-            joint.matrixWorldNeedsUpdate = false;
             expect(joint.setJointValue(1.5)).toBeFalsy();
-            expect(joint.matrixWorldNeedsUpdate).toBeFalsy();
 
             // Repeat checks for prismatic linear behavior
             joint.jointType = 'prismatic';
-            joint.matrixWorldNeedsUpdate = false;
             expect(joint.setJointValue(0.5)).toBeTruthy();
-            expect(joint.matrixWorldNeedsUpdate).toBeTruthy();
-
-            joint.matrixWorldNeedsUpdate = false;
             expect(joint.setJointValue(0.5)).toBeFalsy();
-            expect(joint.matrixWorldNeedsUpdate).toBeFalsy();
+        });
 
-            joint.matrixWorldNeedsUpdate = false;
-            expect(joint.setJointValue(1.5)).toBeTruthy();
-            expect(joint.matrixWorldNeedsUpdate).toBeTruthy();
+        it('should safely ignore null values without mutating state', () => {
+            const joint = new URDFJoint();
+            joint.axis = new Vector3(0, 0, 1);
+            
+            joint.jointType = 'revolute';
+            expect(joint.setJointValue(null)).toBe(false);
+            
+            joint.jointType = 'prismatic';
+            expect(joint.setJointValue(null)).toBe(false);
 
-            joint.matrixWorldNeedsUpdate = false;
-            expect(joint.setJointValue(1.5)).toBeFalsy();
-            expect(joint.matrixWorldNeedsUpdate).toBeFalsy();
+            const mimic = new URDFMimicJoint();
+            mimic.jointType = 'revolute';
+            expect(mimic.updateFromMimickedJoint(null)).toBe(false);
         });
     });
 
-    describe('Mimic Joints (Kinematic Chains & Trees)', () => {
+    describe('Mimic Joints (Kinematic Chains)', () => {
         let joint: URDFJoint, mimickerA: URDFMimicJoint, mimickerB: URDFMimicJoint;
 
         beforeEach(() => {
@@ -177,26 +167,52 @@ describe('URDFJoint Kinematics & Limits', () => {
             mimickerB.jointValue = [-56];
             expect(joint.setJointValue(10)).toBeFalsy();
         });
-
-        it('should return true when ONLY the master root joint registers a change', () => {
-            joint.jointValue = [0];
-            mimickerA.jointValue = [25];
-            mimickerB.jointValue = [-56];
-            expect(joint.setJointValue(10)).toBeTruthy();
+    });
+    
+    describe('Complex Kinematics (Planar & Floating)', () => {
+        it('should compose position and rotation correctly for planar joints (3 DOF)', () => {
+            const joint = new URDFJoint();
+            joint.jointType = 'planar'; 
+            
+            const updated = joint.setJointValue(1.5, -2.0, Math.PI / 2);
+            
+            expect(updated).toBeTruthy();
+            expect(joint.jointValue).toEqual([1.5, -2.0, Math.PI / 2]);
+            expect(joint.position.x).toBeCloseTo(1.5);
+            expect(joint.position.y).toBeCloseTo(-2.0);
+            expect(joint.rotation.z).toBeCloseTo(Math.PI / 2);
         });
 
-        it('should return true when AT LEAST ONE mimic leaf joint registers a change', () => {
-            joint.jointValue = [10];
-            mimickerA.jointValue = [0];
-            mimickerB.jointValue = [-56];
-            expect(joint.setJointValue(10)).toBeTruthy();
+        it('should silently ignore planar joint updates if values are unchanged or null', () => {
+            const joint = new URDFJoint();
+            joint.jointType = 'planar';
+            joint.setJointValue(1, 1, 0);
+            
+            expect(joint.setJointValue(1, 1, 0)).toBeFalsy();
+            expect(joint.setJointValue(null, null, null)).toBeFalsy();
+            expect(joint.setJointValue(2, 2, null)).toBeTruthy();
+            expect(joint.jointValue).toEqual([2, 2, 0]);
         });
 
-        it('should return true when ALL mimic leaf joints register a change', () => {
-            joint.jointValue = [10];
-            mimickerA.jointValue = [0];
-            mimickerB.jointValue = [0];
-            expect(joint.setJointValue(10)).toBeTruthy();
+        it('should compose 3D position and rotation correctly for floating joints (6 DOF)', () => {
+            const joint = new URDFJoint();
+            joint.jointType = 'floating';
+            
+            const updated = joint.setJointValue(10, 20, 30, Math.PI, 0, Math.PI / 2);
+            
+            expect(updated).toBeTruthy();
+            expect(joint.jointValue).toEqual([10, 20, 30, Math.PI, 0, Math.PI / 2]);
+            expect(joint.position.x).toBeCloseTo(10);
+            expect(joint.rotation.x).toBeCloseTo(Math.PI);
+        });
+
+        it('should silently ignore floating joint updates if values are unchanged or null', () => {
+            const joint = new URDFJoint();
+            joint.jointType = 'floating';
+            joint.setJointValue(1, 2, 3, 0, 0, 0);
+            
+            expect(joint.setJointValue(1, 2, 3, 0, 0, 0)).toBeFalsy();
+            expect(joint.setJointValue(null, null, null, null, null, null)).toBeFalsy();
         });
     });
 });

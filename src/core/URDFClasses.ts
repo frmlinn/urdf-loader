@@ -366,9 +366,10 @@ export class URDFJoint extends URDFBase {
                 this.matrixWorldNeedsUpdate = true;
                 return true;
             }
-        }
 
-        return didUpdate;
+            default:
+                return didUpdate;
+        }
     }
 }
 

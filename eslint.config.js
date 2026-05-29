@@ -8,7 +8,8 @@ export default tseslint.config(
       'dist/**',
       'dist-demo/**',
       'node_modules/**',
-      'urdf/**'
+      'urdf/**',
+      'coverage/**'
     ]
   },
   eslint.configs.recommended,

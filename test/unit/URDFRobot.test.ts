@@ -170,3 +170,46 @@ describe('URDFRobot', () => {
         expect(jointA.mimicJoints[0]).not.toBe(res.joints['A'].mimicJoints[0]);
     });
 });
+
+describe('Mesh Caching and Frame Retrieval', () => {
+    it('should eagerly compute bounding volumes and categorize flat meshes arrays', () => {
+        const loader = new URDFLoader();
+        loader.parseCollision = true;
+        const robot = loader.parse(`
+            <robot name="CACHE_TEST">
+                <link name="LINK_A">
+                    <visual name="VIS1"><geometry><box size="1 1 1"/></geometry></visual>
+                    <collision name="COL1"><geometry><box size="1 1 1"/></geometry></collision>
+                </link>
+            </robot>
+        `);
+
+        robot.updateMeshCaches();
+
+        expect(robot.flatVisualMeshes).toHaveLength(1);
+        expect(robot.flatColliderMeshes).toHaveLength(1);
+
+        const visualMesh = robot.flatVisualMeshes[0];
+        expect(visualMesh.geometry.boundingBox).toBeDefined();
+        expect(visualMesh.geometry.boundingSphere).toBeDefined();
+    });
+
+    it('should retrieve correct frames via getFrame() API', () => {
+        const loader = new URDFLoader();
+        const robot = loader.parse(`
+            <robot name="FRAME_TEST">
+                <link name="L1"/>
+                <link name="L2"/>
+                <joint name="J1"><parent link="L1"/><child link="L2"/></joint>
+            </robot>
+        `);
+
+        expect(robot.getFrame('L1')).toBeDefined();
+        expect(robot.getFrame('L1')?.type).toBe('URDFLink');
+        
+        expect(robot.getFrame('J1')).toBeDefined();
+        expect(robot.getFrame('J1')?.type).toBe('URDFJoint');
+        
+        expect(robot.getFrame('MISSING_FRAME')).toBeUndefined();
+    });
+});
