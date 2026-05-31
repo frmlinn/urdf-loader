@@ -11,7 +11,7 @@ on:
   workflow_call:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -40,9 +40,3 @@ jobs:
 
       - name: Run Unit Tests with Coverage
         run: pnpm run test:coverage
-
-      - name: Generate Coverage Badges
-        uses: jpb06/coverage-badges-action@latest
-        with:
-          branches: main
-          badges-icon: vitest
