@@ -39,4 +39,4 @@ jobs:
         run: pnpm run lint
 
       - name: Run Unit Tests with Coverage
-        run: pnpm run test:coverage
+        run: pnpm run test:coverage --coverage.thresholds.global.statements=80 --coverage.thresholds.global.branches=80 --coverage.thresholds.global.functions=80 --coverage.thresholds.global.lines=80
