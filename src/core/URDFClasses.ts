@@ -9,8 +9,6 @@ const _tempQuat = new Quaternion();
 const _tempScale = new Vector3(1.0, 1.0, 1.0);
 const _tempPosition = new Vector3();
 
-// --- MEMORY MANAGEMENT SYSTEM (REFERENCE COUNTING) ---
-
 /**
  * Increments the reference count of a given resource or array of resources.
  * Initializes the reference count if it does not exist.
