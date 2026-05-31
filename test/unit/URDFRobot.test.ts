@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { Mesh, BufferGeometry, MeshBasicMaterial } from 'three';
 import { URDFLoader } from '../../src/core/URDFLoader';
-import { URDFMimicJoint } from '../../src/core/URDFClasses';
+import { URDFRobot, URDFJoint, URDFMimicJoint } from '../../src/core/URDFClasses';
 
 /**
  * Unit tests for the URDFRobot class.
@@ -211,5 +212,119 @@ describe('Mesh Caching and Frame Retrieval', () => {
         expect(robot.getFrame('J1')?.type).toBe('URDFJoint');
         
         expect(robot.getFrame('MISSING_FRAME')).toBeUndefined();
+    });
+
+    it('should not recompute bounding volumes if they already exist', () => {
+        const robot = new URDFRobot();
+        const geometry = new BufferGeometry();
+
+        geometry.computeBoundingBox();
+        geometry.computeBoundingSphere();
+        
+        const mesh = new Mesh(geometry, new MeshBasicMaterial());
+        robot.add(mesh);
+        
+        const boxSpy = vi.spyOn(geometry, 'computeBoundingBox');
+        const sphereSpy = vi.spyOn(geometry, 'computeBoundingSphere');
+        
+        robot.updateMeshCaches();
+        
+        expect(boxSpy).not.toHaveBeenCalled();
+        expect(sphereSpy).not.toHaveBeenCalled();
+    });
+
+    it('should safely process meshes without geometry during cache updates', () => {
+        const robot = new URDFRobot();
+        const mesh = new Mesh();
+        
+        mesh.geometry = null as unknown as BufferGeometry;
+        
+        robot.add(mesh);
+        
+        expect(() => robot.updateMeshCaches()).not.toThrow();
+        expect(robot.flatVisualMeshes).toHaveLength(1);
+    });
+});
+
+describe('Cloning and Resource Management', () => {
+    it('should retain mesh resources correctly when cloning a robot', () => {
+        const robot = new URDFRobot();
+        const geometry = new BufferGeometry();
+        const material = new MeshBasicMaterial();
+        
+        geometry.userData = { refCount: 1 };
+        material.userData = { refCount: 1 };
+        
+        const mesh = new Mesh(geometry, material);
+        robot.add(mesh);
+        
+        const clonedRobot = robot.clone();
+        
+        expect(clonedRobot).toBeDefined();
+        expect(geometry.userData.refCount).toBe(2);
+        expect(material.userData.refCount).toBe(2);
+    });
+});
+
+describe('State Management and Updates', () => {
+    it('should return false when trying to set a value for a non-existent joint', () => {
+        const robot = new URDFRobot();
+        
+        expect(robot.setJointValue('GHOST_JOINT', 1.0)).toBeFalsy();
+    });
+
+    it('should correctly unpack arrays when using setJointValues for multi-DOF joints', () => {
+        const robot = new URDFRobot();
+        
+        const planarJoint = new URDFJoint();
+        planarJoint.name = 'PlanarJ';
+        planarJoint.urdfName = 'PlanarJ';
+        planarJoint.jointType = 'planar';
+        
+        robot.joints['PlanarJ'] = planarJoint;
+
+        const didChange = robot.setJointValues({ 'PlanarJ': [1.5, -2.0, 3.14] });
+        
+        expect(didChange).toBeTruthy();
+        expect(planarJoint.jointValue).toEqual([1.5, -2.0, 3.14]);
+    });
+
+    it('should correctly handle scalar (non-array) values in setJointValues', () => {
+        const robot = new URDFRobot();
+        
+        const revoluteJoint = new URDFJoint();
+        revoluteJoint.name = 'RevJ';
+        revoluteJoint.urdfName = 'RevJ';
+        revoluteJoint.jointType = 'revolute';
+        revoluteJoint.ignoreLimits = true;
+        
+        robot.joints['RevJ'] = revoluteJoint;
+
+        const didChange = robot.setJointValues({ 'RevJ': 2.5 });
+        
+        expect(didChange).toBeTruthy();
+        expect(revoluteJoint.angle).toBe(2.5);
+    });
+
+    it('should evaluate the right side of the logical OR (|| didChange) when values do not change', () => {
+        const robot = new URDFRobot();
+        
+        const planarJoint = new URDFJoint();
+        planarJoint.name = 'PlanarJ';
+        planarJoint.urdfName = 'PlanarJ';
+        planarJoint.jointType = 'planar';
+        
+        const revJoint = new URDFJoint();
+        revJoint.name = 'RevJ';
+        revJoint.urdfName = 'RevJ';
+        revJoint.jointType = 'revolute';
+        
+        robot.joints['PlanarJ'] = planarJoint;
+        robot.joints['RevJ'] = revJoint;
+        robot.setJointValues({ 'PlanarJ': [1.5, -2.0, 3.14], 'RevJ': 1.0 });
+        
+        const didChange = robot.setJointValues({ 'PlanarJ': [1.5, -2.0, 3.14], 'RevJ': 1.0 });
+        
+        expect(didChange).toBeFalsy();
     });
 });

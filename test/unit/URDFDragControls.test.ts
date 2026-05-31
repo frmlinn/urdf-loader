@@ -134,6 +134,22 @@ describe('URDFDragControls Module', () => {
             expect(delta).toBeCloseTo(5);
         });
 
+        describe('Default Callbacks', () => {
+            it('should execute default empty callbacks safely without throwing', () => {
+                expect(() => controls.onDragStart(joint)).not.toThrow();
+                expect(() => controls.onDragEnd(joint)).not.toThrow();
+                expect(() => controls.onHover(joint)).not.toThrow();
+                expect(() => controls.onUnhover(joint)).not.toThrow();
+            });
+
+            it('should update the joint angle using the default updateJoint handler', () => {
+                const setJointValueSpy = vi.spyOn(joint, 'setJointValue');
+                controls.updateJoint(joint, 1.5);
+                
+                expect(setJointValueSpy).toHaveBeenCalledWith(1.5);
+            });
+        });
+
         describe('State Transitions & Early Returns', () => {
             it('should transition to manipulating state when successfully grabbed', () => {
                 const dragStartSpy = vi.fn();
@@ -195,6 +211,55 @@ describe('URDFDragControls Module', () => {
             controls.moveRay(newRay.ray);
 
             expect(updateSpy).toHaveBeenCalledWith(joint, joint.angle + 0.5);
+        });
+
+        it('should process prismatic joints correctly in moveRay and calculate linear delta', () => {
+            joint.jointType = 'prismatic';
+            
+            const updateSpy = vi.fn();
+            controls.updateJoint = updateSpy;
+            
+            controls.hovered = joint;
+            controls.setGrabbed(true);
+
+            vi.spyOn(controls, 'getPrismaticDelta').mockReturnValue(2.5);
+
+            const newRay = new Raycaster();
+            controls.moveRay(newRay.ray);
+
+            expect(updateSpy).toHaveBeenCalledWith(joint, 2.5);
+        });
+
+        it('should not call updateJoint if the calculated delta is exactly zero', () => {
+            joint.jointType = 'prismatic';
+            
+            const updateSpy = vi.fn();
+            controls.updateJoint = updateSpy;
+            
+            controls.hovered = joint;
+            controls.setGrabbed(true);
+
+            vi.spyOn(controls, 'getPrismaticDelta').mockReturnValue(0);
+
+            const newRay = new Raycaster();
+            controls.moveRay(newRay.ray);
+
+            expect(updateSpy).not.toHaveBeenCalled();
+        });
+
+        it('should leave delta as 0 and bypass updates if the jointType is not supported for raycast dragging', () => {
+            joint.jointType = 'planar';
+            
+            const updateSpy = vi.fn();
+            controls.updateJoint = updateSpy;
+            
+            controls.hovered = joint;
+            controls.setGrabbed(true);
+
+            const newRay = new Raycaster();
+            controls.moveRay(newRay.ray);
+
+            expect(updateSpy).not.toHaveBeenCalled();
         });
     });
 

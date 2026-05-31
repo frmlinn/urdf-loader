@@ -123,6 +123,18 @@ describe('URDFJoint Kinematics & Limits', () => {
             mimic.jointType = 'revolute';
             expect(mimic.updateFromMimickedJoint(null)).toBe(false);
         });
+        it('should return false if prismatic clipping results in no mathematical change', () => {
+            const joint = new URDFJoint();
+            joint.axis = new Vector3(1, 0, 0);
+            joint.jointType = 'prismatic';
+            joint.limit.upper = 1.0;
+            joint.limit.lower = -1.0;
+
+            expect(joint.setJointValue(1.0)).toBeTruthy();
+            
+            expect(joint.setJointValue(1.5)).toBeFalsy();
+            expect(joint.jointValue).toEqual([1.0]);
+        });
     });
 
     describe('Mimic Joints (Kinematic Chains)', () => {
@@ -166,6 +178,11 @@ describe('URDFJoint Kinematics & Limits', () => {
             mimickerA.jointValue = [25];
             mimickerB.jointValue = [-56];
             expect(joint.setJointValue(10)).toBeFalsy();
+        });
+
+        it('should handle string values gracefully through the mimic chain', () => {
+            joint.setJointValue('10'); 
+            expect(mimickerA.jointValue).toEqual([25]);
         });
     });
     
@@ -213,6 +230,66 @@ describe('URDFJoint Kinematics & Limits', () => {
             
             expect(joint.setJointValue(1, 2, 3, 0, 0, 0)).toBeFalsy();
             expect(joint.setJointValue(null, null, null, null, null, null)).toBeFalsy();
+        });
+    });
+
+    describe('Uninitialized State Copying', () => {
+        it('should copy a joint correctly when origPosition and origQuaternion are null', () => {
+            const joint = new URDFJoint();
+            
+            const clonedJoint = new URDFJoint().copy(joint);
+            
+            expect(clonedJoint.origPosition).toBeNull();
+            expect(clonedJoint.origQuaternion).toBeNull();
+        });
+
+        it('should copy a joint correctly when origPosition and origQuaternion are defined', () => {
+            const joint = new URDFJoint();
+            joint.jointType = 'revolute';
+            
+            joint.setJointValue(1.0);
+            
+            const clonedJoint = new URDFJoint().copy(joint);
+            
+            expect(clonedJoint.origPosition).not.toBeNull();
+            expect(clonedJoint.origQuaternion).not.toBeNull();
+            expect(clonedJoint.origPosition!.equals(joint.origPosition!)).toBeTruthy();
+        });
+    });
+
+    describe('String Value Parsing in setJointValue', () => {
+        it('should correctly parse string values for revolute joints', () => {
+            const joint = new URDFJoint();
+            joint.jointType = 'revolute';
+            joint.ignoreLimits = true;
+            
+            joint.setJointValue('1.5');
+            expect(joint.angle).toBe(1.5);
+        });
+
+        it('should correctly parse string values for prismatic joints', () => {
+            const joint = new URDFJoint();
+            joint.jointType = 'prismatic';
+            joint.ignoreLimits = true;
+            
+            joint.setJointValue('2.5');
+            expect(joint.angle).toBe(2.5);
+        });
+
+        it('should correctly parse string values for planar joints', () => {
+            const joint = new URDFJoint();
+            joint.jointType = 'planar';
+            
+            joint.setJointValue('1.5', '-2.0', '3.14');
+            expect(joint.jointValue).toEqual([1.5, -2.0, 3.14]);
+        });
+
+        it('should correctly parse string values for floating joints', () => {
+            const joint = new URDFJoint();
+            joint.jointType = 'floating';
+            
+            joint.setJointValue('1', '2', '3', '4', '5', '6');
+            expect(joint.jointValue).toEqual([1, 2, 3, 4, 5, 6]);
         });
     });
 });

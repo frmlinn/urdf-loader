@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { Mesh, BufferGeometry, MeshBasicMaterial, Texture } from 'three';
+import { Mesh, BufferGeometry, MeshBasicMaterial, Texture, Material } from 'three';
 import { retainResource, releaseResource, retainMeshResources, releaseMeshResources } from '../../src/core/URDFClasses';
 
 type MockResource = { dispose: () => void; userData?: { refCount?: number } };
@@ -67,5 +67,40 @@ describe('Memory Management (Reference Counting)', () => {
         expect(geometry.dispose).toHaveBeenCalled();
         expect(material.dispose).toHaveBeenCalled();
         expect(texture.dispose).toHaveBeenCalled();
+    });
+
+    it('should safely release resources that do not have a dispose method', () => {
+        const resource = { userData: { refCount: 1 } } as MockResource;
+        
+        expect(() => releaseResource(resource)).not.toThrow();
+        expect(resource.userData?.refCount).toBeUndefined();
+    });
+
+    it('should safely handle retaining and releasing meshes without geometry or materials', () => {
+        const mesh = new Mesh();
+        
+        mesh.geometry = null as unknown as BufferGeometry;
+        mesh.material = null as unknown as Material;
+
+        expect(() => retainMeshResources(mesh)).not.toThrow();
+        expect(() => releaseMeshResources(mesh)).not.toThrow();
+    });
+
+    it('should handle retaining and releasing meshes with an array of materials', () => {
+        const geometry = new BufferGeometry();
+        const mat1 = new MeshBasicMaterial();
+        const mat2 = new MeshBasicMaterial();
+        
+        const mesh = new Mesh(geometry, [mat1, mat2]);
+
+        retainMeshResources(mesh);
+        
+        expect(mat1.userData.refCount).toBe(1);
+        expect(mat2.userData.refCount).toBe(1);
+
+        releaseMeshResources(mesh);
+        
+        expect(mat1.userData?.refCount).toBeUndefined();
+        expect(mat2.userData?.refCount).toBeUndefined();
     });
 });

@@ -259,9 +259,6 @@ export class URDFJoint extends URDFBase {
         }
 
         switch (this.jointType) {
-            case 'fixed':
-                return didUpdate;
-
             case 'continuous':
             case 'revolute': {
                 const rawVal = values[0];
