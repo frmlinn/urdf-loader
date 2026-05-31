@@ -10,6 +10,9 @@ on:
       - 'test/**'
   workflow_call:
 
+permissions:
+  contents: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
