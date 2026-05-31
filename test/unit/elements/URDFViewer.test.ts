@@ -606,7 +606,7 @@ describe('URDFViewer Web Component', () => {
             });
 
             it('should fallback to +Z if _setUp is invoked directly with a falsy value', () => {
-                (viewer as any)._setUp('');
+                getPrivates(viewer)._setUp('');
                 
                 expect(viewer.world.rotation.x).toBeCloseTo(-Math.PI / 2);
                 expect(viewer.world.rotation.y).toBeCloseTo(0);

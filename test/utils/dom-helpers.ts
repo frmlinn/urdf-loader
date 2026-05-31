@@ -13,6 +13,7 @@ export interface ViewerPrivates {
     _dirty: boolean;
     _loadUrdf: (pkg: string, urdf: string) => void;
     _scheduleLoad: () => void;
+    _setUp: (upAxis: string) => void;
 }
 
 /**
