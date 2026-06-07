@@ -3,15 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { URDFLoader } from '../core/URDFLoader';
 import { URDFRobot, URDFJoint, releaseMeshResources, retainResource, releaseResource } from '../core/URDFClasses';
 
-const tempVec2 = new THREE.Vector2();
 const emptyRaycast = () => {};
-
-// --- Globally Cached Variables (O(0) Garbage Collection) ---
-const _tempBox = new THREE.Box3();
-const _globalBox = new THREE.Box3();
-const _tempGlobalSphere = new THREE.Sphere();
-const _tempVec3 = new THREE.Vector3();
-const _tempVec3Scale = new THREE.Vector3();
 
 /**
  * Web Component to render and visualize URDF models within a Three.js scene.
@@ -47,6 +39,17 @@ export class URDFViewer extends HTMLElement {
     private _shadowsNeedUpdate: boolean = false;
     private _currentShadowCenter: THREE.Vector3 = new THREE.Vector3();
     private _currentShadowRadius: number = 0;
+
+    // --- Cached Variables for Zero GC Operations ---
+    private readonly tempVec2 = new THREE.Vector2();
+    private readonly _tempBox = new THREE.Box3();
+    private readonly _globalBox = new THREE.Box3();
+    private readonly _tempGlobalSphere = new THREE.Sphere();
+    private readonly _tempVec3 = new THREE.Vector3();
+    private readonly _tempVec3Scale = new THREE.Vector3();
+
+    /** Handler cached for control events to avoid memory leaks. */
+    private _onControlChange = () => this.redraw();
 
     /** Registers attributes to trigger the `attributeChangedCallback`. */
     static get observedAttributes(): string[] {
@@ -185,7 +188,7 @@ export class URDFViewer extends HTMLElement {
         this.controls.maxDistance = 50;
         this.controls.minDistance = 0.25;
         // True O(1) decoupling, forces a redraw flag when view changes
-        this.controls.addEventListener('change', () => this.redraw());
+        this.controls.addEventListener('change', this._onControlChange);
 
         // Collider Material Setup
         this._collisionMaterial = new THREE.MeshPhongMaterial({
@@ -215,12 +218,18 @@ export class URDFViewer extends HTMLElement {
     disconnectedCallback(): void {
         this.resizeObserver.disconnect();
         cancelAnimationFrame(this._renderLoopId);
+        
         if (this.robot) {
             this.robot.traverse((c) => {
                 if (c instanceof THREE.Mesh) releaseMeshResources(c);
             });
             this.robot = null;
         }
+
+        // Properly dispose controls to clear DOM listeners and prevent memory leaks
+        this.controls.removeEventListener('change', this._onControlChange);
+        this.controls.dispose();
+
         this.renderer.dispose();
     }
 
@@ -264,7 +273,7 @@ export class URDFViewer extends HTMLElement {
         const h = this.clientHeight;
         if (w === 0 || h === 0) return;
 
-        const currSize = this.renderer.getSize(tempVec2);
+        const currSize = this.renderer.getSize(this.tempVec2);
         if (currSize.width !== w || currSize.height !== h) {
             this.recenter();
         }
@@ -289,8 +298,8 @@ export class URDFViewer extends HTMLElement {
         // Force ground plane and shadow update bypassing hysteresis
         this._updateShadowBounds(true);
 
-        if (!_tempGlobalSphere.isEmpty()) {
-            this.controls.target.copy(_tempGlobalSphere.center);
+        if (!this._tempGlobalSphere.isEmpty()) {
+            this.controls.target.copy(this._tempGlobalSphere.center);
         }
         this.redraw();
     }
@@ -359,7 +368,7 @@ export class URDFViewer extends HTMLElement {
      * @returns The lowest Y coordinate in world space.
      */
     private _calculateSceneBounds(targetSphere: THREE.Sphere): number {
-        _globalBox.makeEmpty();
+        this._globalBox.makeEmpty();
         let minY = Infinity;
 
         if (!this.robot || this.robot.flatVisualMeshes.length === 0) {
@@ -372,17 +381,17 @@ export class URDFViewer extends HTMLElement {
             
             // 1. Box calculation (Inflates global AABB)
             const localBox = mesh.geometry.boundingBox!; 
-            _tempBox.copy(localBox).applyMatrix4(mesh.matrixWorld);
-            _globalBox.union(_tempBox);
-            const boxMinY = _tempBox.min.y;
+            this._tempBox.copy(localBox).applyMatrix4(mesh.matrixWorld);
+            this._globalBox.union(this._tempBox);
+            const boxMinY = this._tempBox.min.y;
 
             // 2. Sphere calculation (Extracts globally scaled radius)
             const localSphere = mesh.geometry.boundingSphere!;
-            _tempVec3.copy(localSphere.center).applyMatrix4(mesh.matrixWorld);
+            this._tempVec3.copy(localSphere.center).applyMatrix4(mesh.matrixWorld);
             
-            _tempVec3Scale.setFromMatrixScale(mesh.matrixWorld);
-            const maxScale = Math.max(Math.abs(_tempVec3Scale.x), Math.abs(_tempVec3Scale.y), Math.abs(_tempVec3Scale.z));
-            const sphereMinY = _tempVec3.y - (localSphere.radius * maxScale);
+            this._tempVec3Scale.setFromMatrixScale(mesh.matrixWorld);
+            const maxScale = Math.max(Math.abs(this._tempVec3Scale.x), Math.abs(this._tempVec3Scale.y), Math.abs(this._tempVec3Scale.z));
+            const sphereMinY = this._tempVec3.y - (localSphere.radius * maxScale);
 
             // 3. Hybrid Heuristic: A real mesh can NEVER be lower than 
             // the min of its Box NOR the min of its Bounding Sphere.
@@ -393,7 +402,7 @@ export class URDFViewer extends HTMLElement {
         }
 
         // Extract perfect sphere for the camera's wide frustum
-        _globalBox.getBoundingSphere(targetSphere);
+        this._globalBox.getBoundingSphere(targetSphere);
 
         return minY === Infinity ? 0 : minY;
     }
@@ -402,8 +411,8 @@ export class URDFViewer extends HTMLElement {
     private _updateShadowBounds(force: boolean = false): void {
         if (!this.robot) return;
 
-        const currentMinY = this._calculateSceneBounds(_tempGlobalSphere);
-        if (_tempGlobalSphere.isEmpty()) return;
+        const currentMinY = this._calculateSceneBounds(this._tempGlobalSphere);
+        if (this._tempGlobalSphere.isEmpty()) return;
 
         // Synchronize floor plane in real-time, decoupled from shadow hysteresis.
         this.plane.position.y = currentMinY - 1e-3;
@@ -412,8 +421,8 @@ export class URDFViewer extends HTMLElement {
         if (!this.displayShadow) return;
 
         // --- Shadow Hysteresis ---
-        const center = _tempGlobalSphere.center;
-        const radius = _tempGlobalSphere.radius;
+        const center = this._tempGlobalSphere.center;
+        const radius = this._tempGlobalSphere.radius;
         const targetRadius = radius * 1.15; // 15% slack
         
         if (!force && this._currentShadowRadius > 0) {

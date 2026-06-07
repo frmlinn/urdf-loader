@@ -1,14 +1,5 @@
 import { Euler, Object3D, Vector3, Quaternion, Matrix4, Mesh, Material, Texture } from 'three';
 
-// Pre-allocated objects for zero-garbage collection mathematical operations
-const _tempAxis = new Vector3();
-const _tempEuler = new Euler();
-const _tempTransform = new Matrix4();
-const _tempOrigTransform = new Matrix4();
-const _tempQuat = new Quaternion();
-const _tempScale = new Vector3(1.0, 1.0, 1.0);
-const _tempPosition = new Vector3();
-
 /**
  * Increments the reference count of a given resource or array of resources.
  * Initializes the reference count if it does not exist.
@@ -190,6 +181,15 @@ export class URDFJoint extends URDFBase {
     /** Array of joints constrained to mimic this joint. */
     public mimicJoints: URDFMimicJoint[] = [];
 
+    // --- Pre-allocated objects for zero-garbage collection operations (Instance-safe) ---
+    private readonly _tempAxis = new Vector3();
+    private readonly _tempEuler = new Euler();
+    private readonly _tempTransform = new Matrix4();
+    private readonly _tempOrigTransform = new Matrix4();
+    private readonly _tempQuat = new Quaternion();
+    private readonly _tempScale = new Vector3(1.0, 1.0, 1.0);
+    private readonly _tempPosition = new Vector3();
+
     get jointType(): JointType {
         return this._jointType;
     }
@@ -295,8 +295,8 @@ export class URDFJoint extends URDFBase {
                 }
 
                 this.position.copy(this.origPosition);
-                _tempAxis.copy(this.axis).applyEuler(this.rotation);
-                this.position.addScaledVector(_tempAxis, pos);
+                this._tempAxis.copy(this.axis).applyEuler(this.rotation);
+                this.position.addScaledVector(this._tempAxis, pos);
 
                 if (this.jointValue[0] !== pos) {
                     this.jointValue[0] = pos;
@@ -321,14 +321,14 @@ export class URDFJoint extends URDFBase {
                 
                 if (!valuesChanged) return didUpdate;
 
-                _tempOrigTransform.compose(this.origPosition, this.origQuaternion, _tempScale);
-                _tempQuat.setFromEuler(_tempEuler.set(this.jointValue[3], this.jointValue[4], this.jointValue[5], 'XYZ'));
-                _tempPosition.set(this.jointValue[0], this.jointValue[1], this.jointValue[2]);
-                _tempTransform.compose(_tempPosition, _tempQuat, _tempScale);
+                this._tempOrigTransform.compose(this.origPosition, this.origQuaternion, this._tempScale);
+                this._tempQuat.setFromEuler(this._tempEuler.set(this.jointValue[3], this.jointValue[4], this.jointValue[5], 'XYZ'));
+                this._tempPosition.set(this.jointValue[0], this.jointValue[1], this.jointValue[2]);
+                this._tempTransform.compose(this._tempPosition, this._tempQuat, this._tempScale);
 
-                _tempOrigTransform.premultiply(_tempTransform);
-                this.position.setFromMatrixPosition(_tempOrigTransform);
-                this.rotation.setFromRotationMatrix(_tempOrigTransform);
+                this._tempOrigTransform.premultiply(this._tempTransform);
+                this.position.setFromMatrixPosition(this._tempOrigTransform);
+                this.rotation.setFromRotationMatrix(this._tempOrigTransform);
 
                 this.matrixWorldNeedsUpdate = true;
                 return true;
@@ -349,14 +349,14 @@ export class URDFJoint extends URDFBase {
                 
                 if (!valuesChanged) return didUpdate;
 
-                _tempOrigTransform.compose(this.origPosition, this.origQuaternion, _tempScale);
-                _tempQuat.setFromAxisAngle(this.axis, this.jointValue[2]);
-                _tempPosition.set(this.jointValue[0], this.jointValue[1], 0.0);
-                _tempTransform.compose(_tempPosition, _tempQuat, _tempScale);
+                this._tempOrigTransform.compose(this.origPosition, this.origQuaternion, this._tempScale);
+                this._tempQuat.setFromAxisAngle(this.axis, this.jointValue[2]);
+                this._tempPosition.set(this.jointValue[0], this.jointValue[1], 0.0);
+                this._tempTransform.compose(this._tempPosition, this._tempQuat, this._tempScale);
 
-                _tempOrigTransform.premultiply(_tempTransform);
-                this.position.setFromMatrixPosition(_tempOrigTransform);
-                this.rotation.setFromRotationMatrix(_tempOrigTransform);
+                this._tempOrigTransform.premultiply(this._tempTransform);
+                this.position.setFromMatrixPosition(this._tempOrigTransform);
+                this.rotation.setFromRotationMatrix(this._tempOrigTransform);
 
                 this.matrixWorldNeedsUpdate = true;
                 return true;

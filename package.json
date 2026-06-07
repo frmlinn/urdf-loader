@@ -1,7 +1,7 @@
 {
   "name": "@frmlinn/urdf-loader",
   "author": "Francisco Morales Carlin <frm.linn@gmail.com>",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "URDF Loader for THREE.js (TypeScript Edition)",
   "type": "module",
   "main": "./dist/urdf-loader.umd.cjs",

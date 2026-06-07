@@ -403,7 +403,9 @@ export class URDFLoader extends THREE.Loader {
      * @returns A promise resolving to the fully constructed Object3D.
      */
     public async defaultMeshLoader(path: string, manager: THREE.LoadingManager): Promise<THREE.Object3D | null> {
-        const ext = path.split('.').pop()?.toLowerCase();
+        // --- FIX MESH LOADING WITH QUERY PARAMETERS ---
+        const ext = path.split(/[#?]/)[0].split('.').pop()?.toLowerCase();
+        // ----------------------------------------------
 
         if (ext === 'stl') {
             const loader = new STLLoader(manager);
