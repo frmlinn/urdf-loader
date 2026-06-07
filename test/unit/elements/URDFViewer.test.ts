@@ -52,6 +52,19 @@ describe('URDFViewer Web Component', () => {
                 expect(viewer.directionalLight).toBeInstanceOf(THREE.DirectionalLight);
                 expect(viewer.plane).toBeInstanceOf(THREE.Mesh); 
             });
+
+            it('should trigger a redraw via _onControlChange when OrbitControls dispatch a change event', () => {
+                const redrawSpy = vi.spyOn(viewer, 'redraw');
+
+                getPrivates(viewer)._dirty = false;
+
+                viewer.controls.dispatchEvent({ type: 'change' });
+
+                expect(redrawSpy).toHaveBeenCalledOnce();
+                expect(getPrivates(viewer)._dirty).toBe(true);
+
+                redrawSpy.mockRestore();
+            });
         });
 
         describe('disconnectedCallback()', () => {

@@ -20,16 +20,6 @@ function findNearestJoint(child: Object3D | null): URDFJoint | null {
     return null;
 }
 
-// Module-level temporaries to avoid GC during drag updates
-const prevHitPoint = new Vector3();
-const newHitPoint = new Vector3();
-const pivotPoint = new Vector3();
-const tempVector = new Vector3();
-const tempVector2 = new Vector3();
-const projectedStartPoint = new Vector3();
-const projectedEndPoint = new Vector3();
-const plane = new Plane();
-
 /**
  * Controller class to interactively manipulate URDF joints in a Scene via raycasting.
  */
@@ -44,6 +34,16 @@ export class URDFDragControls {
     public hitDistance: number = -1;
     public hovered: URDFJoint | null = null;
     public manipulating: URDFJoint | null = null;
+
+    // --- Pre-allocated temporaries to avoid GC during drag updates (Instance-safe) ---
+    protected readonly prevHitPoint = new Vector3();
+    protected readonly newHitPoint = new Vector3();
+    protected readonly pivotPoint = new Vector3();
+    protected readonly tempVector = new Vector3();
+    protected readonly tempVector2 = new Vector3();
+    protected readonly projectedStartPoint = new Vector3();
+    protected readonly projectedEndPoint = new Vector3();
+    protected readonly plane = new Plane();
 
     /** Callback fired when dragging begins. */
     public onDragStart: (joint: URDFJoint) => void = () => {};
@@ -93,26 +93,26 @@ export class URDFDragControls {
      * @returns The angular delta in radians.
      */
     public getRevoluteDelta(joint: URDFJoint, startPoint: Vector3, endPoint: Vector3): number {
-        tempVector
+        this.tempVector
             .copy(joint.axis)
             .transformDirection(joint.matrixWorld)
             .normalize();
-        pivotPoint
+        this.pivotPoint
             .set(0, 0, 0)
             .applyMatrix4(joint.matrixWorld);
-        plane
-            .setFromNormalAndCoplanarPoint(tempVector, pivotPoint);
+        this.plane
+            .setFromNormalAndCoplanarPoint(this.tempVector, this.pivotPoint);
 
-        plane.projectPoint(startPoint, projectedStartPoint);
-        plane.projectPoint(endPoint, projectedEndPoint);
+        this.plane.projectPoint(startPoint, this.projectedStartPoint);
+        this.plane.projectPoint(endPoint, this.projectedEndPoint);
 
-        projectedStartPoint.sub(pivotPoint);
-        projectedEndPoint.sub(pivotPoint);
+        this.projectedStartPoint.sub(this.pivotPoint);
+        this.projectedEndPoint.sub(this.pivotPoint);
 
-        tempVector.crossVectors(projectedStartPoint, projectedEndPoint);
+        this.tempVector.crossVectors(this.projectedStartPoint, this.projectedEndPoint);
 
-        const direction = Math.sign(tempVector.dot(plane.normal));
-        return direction * projectedEndPoint.angleTo(projectedStartPoint);
+        const direction = Math.sign(this.tempVector.dot(this.plane.normal));
+        return direction * this.projectedEndPoint.angleTo(this.projectedStartPoint);
     }
 
     /**
@@ -123,17 +123,17 @@ export class URDFDragControls {
      * @returns The linear delta in metric units.
      */
     public getPrismaticDelta(joint: URDFJoint, startPoint: Vector3, endPoint: Vector3): number {
-        tempVector.subVectors(endPoint, startPoint);
+        this.tempVector.subVectors(endPoint, startPoint);
         if (joint.parent) {
-            plane.normal
+            this.plane.normal
                 .copy(joint.axis)
                 .transformDirection(joint.parent.matrixWorld)
                 .normalize();
         } else {
-            plane.normal.copy(joint.axis).normalize();
+            this.plane.normal.copy(joint.axis).normalize();
         }
 
-        return tempVector.dot(plane.normal);
+        return this.tempVector.dot(this.plane.normal);
     }
 
     /** Updates the position of the internal ray to process drags. */
@@ -142,14 +142,14 @@ export class URDFDragControls {
         const { ray } = raycaster;
 
         if (manipulating) {
-            ray.at(hitDistance, prevHitPoint);
-            toRay.at(hitDistance, newHitPoint);
+            ray.at(hitDistance, this.prevHitPoint);
+            toRay.at(hitDistance, this.newHitPoint);
 
             let delta = 0;
             if (manipulating.jointType === 'revolute' || manipulating.jointType === 'continuous') {
-                delta = this.getRevoluteDelta(manipulating, prevHitPoint, newHitPoint);
+                delta = this.getRevoluteDelta(manipulating, this.prevHitPoint, this.newHitPoint);
             } else if (manipulating.jointType === 'prismatic') {
-                delta = this.getPrismaticDelta(manipulating, prevHitPoint, newHitPoint);
+                delta = this.getPrismaticDelta(manipulating, this.prevHitPoint, this.newHitPoint);
             }
 
             if (delta) this.updateJoint(manipulating, manipulating.angle + delta);
@@ -238,35 +238,35 @@ export class PointerURDFDragControls extends URDFDragControls {
     public override getRevoluteDelta(joint: URDFJoint, startPoint: Vector3, endPoint: Vector3): number {
         const { camera, initialGrabPoint } = this;
 
-        tempVector
+        this.tempVector
             .copy(joint.axis)
             .transformDirection(joint.matrixWorld)
             .normalize();
-        pivotPoint
+        this.pivotPoint
             .set(0, 0, 0)
             .applyMatrix4(joint.matrixWorld);
-        plane
-            .setFromNormalAndCoplanarPoint(tempVector, pivotPoint);
+        this.plane
+            .setFromNormalAndCoplanarPoint(this.tempVector, this.pivotPoint);
 
-        tempVector
+        this.tempVector
             .copy(camera.position)
             .sub(initialGrabPoint)
             .normalize();
 
         // Check if camera vector and joint plane normal are sufficiently aligned
-        if (Math.abs(tempVector.dot(plane.normal)) > 0.3) {
+        if (Math.abs(this.tempVector.dot(this.plane.normal)) > 0.3) {
             return super.getRevoluteDelta(joint, startPoint, endPoint);
         } else {
-            tempVector.set(0, 1, 0).transformDirection(camera.matrixWorld);
+            this.tempVector.set(0, 1, 0).transformDirection(camera.matrixWorld);
 
-            plane.projectPoint(startPoint, projectedStartPoint);
-            plane.projectPoint(endPoint, projectedEndPoint);
+            this.plane.projectPoint(startPoint, this.projectedStartPoint);
+            this.plane.projectPoint(endPoint, this.projectedEndPoint);
 
-            tempVector.set(0, 0, -1).transformDirection(camera.matrixWorld);
-            tempVector.cross(plane.normal);
-            tempVector2.subVectors(endPoint, startPoint);
+            this.tempVector.set(0, 0, -1).transformDirection(camera.matrixWorld);
+            this.tempVector.cross(this.plane.normal);
+            this.tempVector2.subVectors(endPoint, startPoint);
 
-            return tempVector.dot(tempVector2);
+            return this.tempVector.dot(this.tempVector2);
         }
     }
 

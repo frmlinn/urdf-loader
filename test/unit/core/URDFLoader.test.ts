@@ -120,6 +120,34 @@ describe('URDFLoader Module', () => {
                 consoleSpy.mockRestore();
             });
 
+            it('should safely skip texture loading if the resolved material path is null', async () => {
+                const loader = new URDFLoader();
+                loader.packages = { 'valid_pkg': '/path/' };
+                const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+                const urdf = `
+                    <robot name="TexErr">
+                        <link name="L1">
+                            <visual>
+                                <geometry><box size="1 1 1"/></geometry>
+                                <material name="Mat1"><texture filename="package://broken_pkg/tex.png"/></material>
+                            </visual>
+                        </link>
+                    </robot>
+                `;
+                const robot = loader.parse(urdf);
+                await flushPromises();
+
+                const visual = robot.links['L1'].children.find(c => c.type === 'URDFVisual') as URDFVisual;
+                const mesh = visual.children[0] as Mesh;
+                const material = mesh.material as MeshPhongMaterial;
+
+                expect(material.map).toBeNull();
+                expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('broken_pkg not found'));
+
+                consoleSpy.mockRestore();
+            });
+
             it('should parse inline visual materials, mesh scales, visual origins, and joint constraints', async () => {
                 const loader = new URDFLoader();
                 loader.loadMeshFunc = emptyLoadMeshFunc;
@@ -209,6 +237,26 @@ describe('URDFLoader Module', () => {
 
                 textureLoaderSpy.mockRestore();
                 consoleErrorSpy.mockRestore();
+            });
+
+            it('should process collision elements without a name attribute without adding them to the colliders dictionary', () => {
+                const loader = new URDFLoader();
+                loader.parseCollision = true;
+                
+                const urdf = `
+                    <robot name="AnonCol">
+                        <link name="L1">
+                            <collision><geometry><box size="1 1 1"/></geometry></collision>
+                        </link>
+                    </robot>
+                `;
+                const robot = loader.parse(urdf);
+
+                const link = robot.links['L1'];
+                const collision = link.children.find(c => c.type === 'URDFCollider');
+
+                expect(collision).toBeDefined();
+                expect(Object.keys(robot.colliders)).toHaveLength(0);
             });
 
             it('should skip mesh loading if the resolved file path is undefined or falsy', () => {

@@ -200,6 +200,28 @@ describe('URDFManipulator Web Component', () => {
                 expect(eventSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'joint-mouseout' }));
             });
 
+            it('should not overwrite the original material in the WeakMap if onHover is called consecutively', () => {
+                const privates = manipulator as unknown as { 
+                    _originalMaterials: WeakMap<THREE.Mesh, THREE.Material | THREE.Material[]> 
+                };
+                
+                const setSpy = vi.spyOn(privates._originalMaterials, 'set');
+
+                manipulator.dragControls.onHover(mockJoint);
+                expect(mockMesh.material).toBe(manipulator.highlightMaterial);
+                expect(setSpy).toHaveBeenCalledTimes(1);
+
+                manipulator.dragControls.onHover(mockJoint);
+                
+                expect(setSpy).toHaveBeenCalledTimes(1);
+
+                manipulator.dragControls.onUnhover(mockJoint);
+                expect(mockMesh.material).toBe(originalMaterial);
+
+                setSpy.mockRestore();
+            });
+            
+
             it('should safely ignore unhover requests (revert logic) for meshes that were never highlighted', () => {
                 // Directly trigger unhover without a prior hover to force the false branch evaluation
                 // on: if (this._originalMaterials.has(c))
